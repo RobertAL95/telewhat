@@ -3,7 +3,7 @@
 
 import { createContext, useContext, useState, ReactNode, useMemo } from 'react'
 
-type Message = {
+export type Message = {
   id: string
   text: string
   sender: 'me' | 'them'
