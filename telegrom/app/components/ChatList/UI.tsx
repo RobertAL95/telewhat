@@ -11,6 +11,7 @@ type Props = {
 export const ChatListUI = ({ chats, selectedChatId, onSelect }: Props) => {
   return (
     <List>
+      <h1>Chats</h1>
       {chats.map(chat => (
         <ListItem
           key={chat.id}
