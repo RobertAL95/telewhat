@@ -10,7 +10,7 @@ export type Message = {
   timestamp: number
 }
 
-type Chat = {
+export type Chat = {
   id: string
   name: string
   avatar: string
