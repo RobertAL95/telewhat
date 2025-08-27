@@ -9,7 +9,6 @@ export default [
   {
     files: ["**/*.ts", "**/*.tsx"],
     rules: {
-      // Example: you can add your custom rules here
       "@typescript-eslint/no-unused-vars": "warn",
       "react/react-in-jsx-scope": "off",
     },
