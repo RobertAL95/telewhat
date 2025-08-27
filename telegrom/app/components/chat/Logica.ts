@@ -1,15 +1,18 @@
-// /components/Chat/Logica.ts
+'use client'
+
+import { useState } from 'react'
 import { useChatContext } from '../../context/ChatContext'
 
-export const useChatLogic = () => {
+export function useChat() {
   const { chats, selectedChatId, sendMessage } = useChatContext()
+  const chat = chats.find(c => c.id === selectedChatId)!
+  const [newMessage, setNewMessage] = useState('')
 
-  const currentChat = chats.find(c => c.id === selectedChatId) || null
-
-  return {
-    currentChat,
-    sendMessage: (text: string) => {
-      if (currentChat) sendMessage(currentChat.id, text)
-    },
+  const onSend = () => {
+    if (newMessage.trim() === '') return
+    sendMessage(chat.id, newMessage)
+    setNewMessage('')
   }
+
+  return { chat, newMessage, setNewMessage, onSend }
 }

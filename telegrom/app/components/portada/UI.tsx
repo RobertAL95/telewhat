@@ -1,7 +1,13 @@
 'use client'
+
 import { Box, Typography, Button } from '@mui/material'
 
-export function PortadaUI({ onRegistro, onChat }: { onRegistro: () => void; onChat: () => void }) {
+interface PortadaUIProps {
+  onRegistro: () => void
+  onChat: () => void
+}
+
+export function PortadaUI({ onRegistro, onChat }: PortadaUIProps) {
   return (
     <Box
       display="flex"

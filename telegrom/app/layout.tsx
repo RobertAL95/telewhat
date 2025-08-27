@@ -1,16 +1,26 @@
-// /app/layout.tsx
-import type { Metadata } from 'next'
-import './styles/globals.css'
+'use client'
 
-export const metadata: Metadata = {
-  title: 'WhatsApp Clone',
-  description: 'Clon simple de WhatsApp Web',
+import { ReactNode } from 'react'
+import { ChatProvider } from '../app/context/ChatContext'
+import { CssBaseline, ThemeProvider, createTheme } from '@mui/material'
+
+interface RootLayoutProps {
+  children: ReactNode
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: RootLayoutProps) {
+  const theme = createTheme({
+    palette: {
+      mode: 'light', // o 'dark', puedes hacer dinámico si quieres
+      primary: { main: '#2196f3' },
+      secondary: { main: '#21cbf3' },
+    },
+  })
+
   return (
-    <html lang="es">
-      <body>{children}</body>
-    </html>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <ChatProvider>{children}</ChatProvider>
+    </ThemeProvider>
   )
 }

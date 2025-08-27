@@ -1,60 +1,53 @@
-// /components/Chat/UI.tsx
-import { Box, Typography, TextField, IconButton, List, ListItem } from '@mui/material'
-import SendIcon from '@mui/icons-material/Send'
-import { useState } from 'react'
-import { Message } from '../../context/ChatContext'
+'use client'
 
-type Props = {
-  messages: Message[]
-  onSend: (text: string) => void
+import { Box, Typography, TextField, Button } from '@mui/material'
+import { Chat } from '../../context/ChatContext'
+
+interface ChatUIProps {
+  chat: Chat
+  newMessage: string
+  setNewMessage: (msg: string) => void
+  onSend: () => void
 }
 
-export const ChatUI = ({ messages, onSend }: Props) => {
-  const [text, setText] = useState('')
-
-  const handleSend = () => {
-    if (text.trim()) {
-      onSend(text)
-      setText('')
-    }
-  }
-
+export function ChatUI({ chat, newMessage, setNewMessage, onSend }: ChatUIProps) {
   return (
-    <Box display="flex" flexDirection="column" height="100vh">
-      <Box flexGrow={1} overflow="auto" p={1}>
-        <List>
-          {messages.map(msg => (
-            <ListItem
-              key={msg.id}
-              style={{
-                justifyContent: msg.sender === 'me' ? 'flex-end' : 'flex-start',
+    <Box display="flex" flexDirection="column" height="100vh" p={2}>
+      <Typography variant="h4" mb={2}>
+        Chat con {chat.name}
+      </Typography>
+
+      <Box flex={1} overflow="auto" mb={2}>
+        {chat.messages.map(m => (
+          <Box key={m.id} mb={1} textAlign={m.sender === 'me' ? 'right' : 'left'}>
+            <Typography
+              component="span"
+              sx={{
+                backgroundColor: m.sender === 'me' ? '#2196f3' : '#e0e0e0',
+                color: m.sender === 'me' ? 'white' : 'black',
+                px: 1,
+                py: 0.5,
+                borderRadius: 1,
+                display: 'inline-block',
               }}
             >
-              <Box
-                bgcolor={msg.sender === 'me' ? 'primary.main' : 'grey.300'}
-                color={msg.sender === 'me' ? 'white' : 'black'}
-                borderRadius={2}
-                px={2}
-                py={1}
-              >
-                <Typography variant="body2">{msg.text}</Typography>
-              </Box>
-            </ListItem>
-          ))}
-        </List>
+              {m.text}
+            </Typography>
+          </Box>
+        ))}
       </Box>
-      <Box display="flex" p={1} borderTop="1px solid #ccc">
+
+      <Box display="flex" gap={1}>
         <TextField
           fullWidth
           variant="outlined"
-          size="small"
           placeholder="Escribe un mensaje"
-          value={text}
-          onChange={e => setText(e.target.value)}
+          value={newMessage}
+          onChange={e => setNewMessage(e.target.value)}
         />
-        <IconButton color="primary" onClick={handleSend}>
-          <SendIcon />
-        </IconButton>
+        <Button variant="contained" onClick={onSend}>
+          Enviar
+        </Button>
       </Box>
     </Box>
   )

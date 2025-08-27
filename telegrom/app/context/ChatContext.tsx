@@ -1,4 +1,3 @@
-// /context/ChatContext.tsx
 'use client'
 
 import { createContext, useContext, useState, ReactNode, useMemo } from 'react'
@@ -35,7 +34,6 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       messages: [{ id: 'm1', text: 'Hola!', sender: 'them', timestamp: Date.now() }],
     },
   ])
-
   const [selectedChatId, setSelectedChatId] = useState<string | null>('1')
 
   const selectChat = (id: string) => setSelectedChatId(id)
