@@ -1,4 +1,4 @@
-// /components/Chat/Render.tsx
+
 'use client'
 
 import { useChatLogic } from './Logica'

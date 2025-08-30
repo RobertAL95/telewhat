@@ -7,7 +7,7 @@ export function usePortada() {
   const router = useRouter()
 
   const goRegistro = useCallback(() => {
-    router.push('/registro')
+    router.push('/auth')
   }, [router])
 
   const goChat = useCallback(() => {

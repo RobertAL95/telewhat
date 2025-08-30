@@ -1,9 +1,11 @@
-'use client'
-
-import dynamic from 'next/dynamic'
-
-const Portada = dynamic(() => import('./components/portada/Render'), { ssr: false })
+// app/page.tsx
+import Portada from '@/components/portada/Render'
+import ThemeWrapper from '@/components/ThemeWrapper'
 
 export default function HomePage() {
-  return <Portada />
+  return (
+    <ThemeWrapper>
+      <Portada />
+    </ThemeWrapper>
+  )
 }
