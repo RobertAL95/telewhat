@@ -1,8 +1,8 @@
 'use client'
 
-import ChatList from '@/ChatList/Render' // La lista de chat
-import Chat from '@/chat/Render'     // El chat principal
-import { ChatProvider } from '../context/ChatContext.tsx'
+import ChatList from '@/ChatList' // La lista de chat
+import Chat from '@/chat/index'     // El chat principal
+import { ChatProvider } from '../context/ChatContext'
 import { Box, useMediaQuery } from '@mui/material'
 
 export default function ChatPage() {
