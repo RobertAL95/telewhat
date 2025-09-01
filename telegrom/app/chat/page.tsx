@@ -1,7 +1,7 @@
 'use client'
 
-import ChatList from '@/ChatList' // La lista de chat
-import Chat from '@/chat/index'     // El chat principal
+import ChatList from '@/app/components/ChatList' // La lista de chat
+import Chat from '@/app/components/chat'     // El chat principal
 import { ChatProvider } from '../context/ChatContext'
 import { Box, useMediaQuery } from '@mui/material'
 
