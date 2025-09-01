@@ -8,7 +8,7 @@ import {
   ListItemButton,
   Typography,
 } from '@mui/material'
-import { Chat } from '../../context/ChatContext'
+import { Chat } from '../../app/context/ChatContext'
 
 type Props = {
   chats: Chat[]

@@ -1,5 +1,5 @@
 // /components/Chat/Logica.ts
-import { useChatContext } from '../../context/ChatContext'
+import { useChatContext } from '../../app/context/ChatContext'
 
 export const useChatLogic = () => {
   const { chats, selectedChatId, sendMessage } = useChatContext()

@@ -1,6 +1,6 @@
 // app/page.tsx
-import Portada from '@/components/Portada'
-import ThemeWrapper from '@/components/ThemeWrapper'
+import Portada from '../components/Portada'
+import ThemeWrapper from '../components/ThemeWrapper'
 
 export default function HomePage() {
   return (

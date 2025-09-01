@@ -2,7 +2,7 @@
 import { Box, Typography, TextField, IconButton, List, ListItem } from '@mui/material'
 import SendIcon from '@mui/icons-material/Send'
 import { useState } from 'react'
-import { Message } from '../../context/ChatContext'
+import { Message } from '../../app/context/ChatContext'
 
 type Props = {
   messages: Message[]

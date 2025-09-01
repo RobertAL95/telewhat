@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useChatContext } from '../../context/ChatContext'
+import { useChatContext } from '../../app/context/ChatContext'
 
 export function useChat() {
   const { chats, selectedChatId, sendMessage } = useChatContext()

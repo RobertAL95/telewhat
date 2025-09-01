@@ -1,7 +1,7 @@
 'use client'
 
 import { Box, Typography, TextField, Button } from '@mui/material'
-import { Chat } from '../../context/ChatContext'
+import { Chat } from '../../app/context/ChatContext'
 
 interface ChatUIProps {
   chat: Chat

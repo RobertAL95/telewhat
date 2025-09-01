@@ -3,7 +3,7 @@ import { Box, TextField, Button, Link, Divider } from '@mui/material'
 import GoogleIcon from '@mui/icons-material/Google'
 import GitHubIcon from '@mui/icons-material/GitHub'
 import LinkedInIcon from '@mui/icons-material/LinkedIn'
-import { useAuthCard } from '../../context/AuthCardContext'
+import { useAuthCard } from '../../app/context/AuthCardContext'
 
 export default function RegisterForm() {
   const { setState } = useAuthCard()
