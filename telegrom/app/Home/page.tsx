@@ -1,6 +1,6 @@
 'use client'
 
-import Portada from '@/app/components/Portada'
+import Portada from '@/components/Portada'
 import { Box, useMediaQuery } from '@mui/material'
 
 export default function ChatPage() {
