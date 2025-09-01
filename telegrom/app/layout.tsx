@@ -1,7 +1,7 @@
 // app/layout.tsx
 import { ReactNode } from 'react'
 import { ChatProvider } from './context/ChatContext'
-import ThemeWrapper from '../components/ThemeWrapper'
+import ThemeWrapper from './ThemeWrapper'
 
 interface RootLayoutProps {
   children: ReactNode
