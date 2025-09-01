@@ -1,11 +1,11 @@
 // app/page.tsx
-import Portada from '../components/Portada'
+import Home from './Home'
 import ThemeWrapper from '../components/ThemeWrapper'
 
 export default function HomePage() {
   return (
     <ThemeWrapper>
-      <Portada />
+      <Home />
     </ThemeWrapper>
   )
 }
