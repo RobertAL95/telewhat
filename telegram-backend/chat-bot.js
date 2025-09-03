@@ -1,47 +1,58 @@
-require('dotenv').config();
-const OpenAI = require("openai");
 const WebSocket = require("ws");
 
-// Inicializa el cliente OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Diccionario de palabras
+const dictionary = [
+  "hoy", "clima", "lluvia", "sol", "nublado", "viento", "temperatura",
+  "frío", "calor", "humedad", "pronóstico", "cielo", "tormenta", "paraguas",
+  "caminar", "planes", "rápido", "despacio", "ráfaga", "paseo"
+];
 
-// WebSockets
-const ws1 = new WebSocket('ws://localhost:3000');
-const ws2 = new WebSocket('ws://localhost:3000');
-
-let conversation = []; // historial de la conversación
-
-async function generateResponse(message) {
-  conversation.push({ role: "user", content: message });
-
-  const res = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: conversation,
-  });
-
-  const reply = res.choices[0].message.content;
-  conversation.push({ role: "assistant", content: reply });
-  return reply;
+// Función para generar frases aleatorias
+function generateSentence(wordCount = 5) {
+  let sentence = [];
+  for (let i = 0; i < wordCount; i++) {
+    const word = dictionary[Math.floor(Math.random() * dictionary.length)];
+    sentence.push(word);
+  }
+  // Capitaliza primera letra y agrega punto
+  return sentence.join(" ") + ".";
 }
 
-// Bot1 inicia la conversación
-ws1.on('open', async () => {
-  const msg = await generateResponse("Hola!");
-  ws1.send("Bot1: " + msg);
-});
+// WebSockets simulados para comunicación local
+function createFakeWS() {
+  let listeners = [];
+  return {
+    send(msg) {
+      setTimeout(() => listeners.forEach(cb => cb(msg)), 500);
+    },
+    on(event, cb) {
+      if (event === "message") listeners.push(cb);
+    }
+  };
+}
 
-// Bot2 responde
-ws2.on('message', async (msg) => {
-  console.log("Bot2 escuchó: " + msg);
-  const reply = await generateResponse(msg);
-  setTimeout(() => ws2.send("Bot2: " + reply), 1000);
-});
+const ws1 = createFakeWS();
+const ws2 = createFakeWS();
 
-// Bot1 sigue la conversación
-ws1.on('message', async (msg) => {
+// Bot1 escucha y responde
+ws1.on("message", (msg) => {
   console.log("Bot1 escuchó: " + msg);
-  const reply = await generateResponse(msg);
-  setTimeout(() => ws1.send("Bot1: " + reply), 1000);
+  const reply = generateSentence();
+  ws2.send("Bot1: " + reply);
 });
+
+// Bot2 escucha y responde
+ws2.on("message", (msg) => {
+  console.log("Bot2 escuchó: " + msg);
+  const reply = generateSentence();
+  ws1.send("Bot2: " + reply);
+});
+
+// Inicia la conversación
+ws1.send("Bot1: " + generateSentence());
+
+// Mantener conversación 2 minutos
+setTimeout(() => {
+  console.log("💤 Fin de la conversación de 2 minutos.");
+  process.exit();
+}, 120000);
