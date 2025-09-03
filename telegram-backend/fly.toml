@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for telegrom on 2025-09-03T14:16:08Z
+# fly.toml app configuration file generated for telewhat on 2025-09-03T14:24:29Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'telegrom'
+app = 'telewhat'
 primary_region = 'gig'
 
 [build]
