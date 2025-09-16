@@ -1,4 +1,5 @@
 'use client'
+
 import AuthCard from '../../components/auth/AuthCard'
 import { AuthCardProvider } from '../context/AuthCardContext'
 
