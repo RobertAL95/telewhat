@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Box, TextField, Button, Link, Alert } from '@mui/material'
 import { useAuth } from './AuthContext'
 import { useRouter } from 'next/navigation'
+import { loginUser } from '../../app/data/authData'
 
 export default function LoginForm() {
   const { setIsRegister } = useAuth()
@@ -23,11 +24,11 @@ export default function LoginForm() {
     setError(null)
 
     try {
-      // Simulación de login
-      console.log('Login attempt', formData)
-      // Aquí puedes usar tu función de login real con axios
-      // const response = await loginUser(formData)
-      router.push('/') // redirige al home al login exitoso
+      const token = await loginUser(formData)
+      console.log('Token recibido:', token)
+
+      // Redirige al home o dashboard
+      router.push('/chat')
     } catch (err: any) {
       setError(err?.response?.data?.message || err.message || 'Error al iniciar sesión')
     } finally {

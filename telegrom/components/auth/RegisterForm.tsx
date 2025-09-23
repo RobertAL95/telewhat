@@ -1,15 +1,24 @@
 "use client";
 
 import React, { useState } from "react";
-import { TextField, Button, Alert } from "@mui/material";
+import { TextField, Button, Alert, Link, Box } from "@mui/material";
 import { useAuth } from "./AuthContext";
 import { registerUser } from "../../app/data/authData";
 
 export default function RegisterForm() {
-  const { setAuthState } = useAuth();
+  const { setAuthState, setIsRegister } = useAuth();
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    password: "",
+  });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -17,44 +26,83 @@ export default function RegisterForm() {
     setSuccess("");
     setLoading(true);
 
-    const form = e.currentTarget;
-    const data = {
-      name: (form[0] as HTMLInputElement).value,
-      email: (form[1] as HTMLInputElement).value,
-      password: (form[2] as HTMLInputElement).value,
-    };
-
     try {
-      const res = await registerUser(data);
+      const res = await registerUser(formData);
       console.log("Respuesta backend:", res);
       setSuccess("Registro exitoso!");
+
+      // Guardar usuario en contexto
       setAuthState({
         isAuthenticated: true,
-        user: { name: data.name },
+        user: { name: formData.name, email: formData.email },
       });
+
+      // Vuelve al login
+      setIsRegister(false);
     } catch (err: any) {
       console.error(err);
-      setError(err?.response?.data?.message || err.message || "Error al registrar");
+      setError(
+        err?.response?.data?.message || err.message || "Error al registrar"
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <form
+    <Box
+      component="form"
       onSubmit={handleSubmit}
-      style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+      display="flex"
+      flexDirection="column"
+      gap={2}
     >
       {error && <Alert severity="error">{error}</Alert>}
       {success && <Alert severity="success">{success}</Alert>}
 
-      <TextField label="Nombre" fullWidth required />
-      <TextField label="Correo" type="email" fullWidth required />
-      <TextField label="Contraseña" type="password" fullWidth required />
+      <TextField
+        label="Nombre"
+        name="name"
+        value={formData.name}
+        onChange={handleChange}
+        fullWidth
+        required
+      />
+      <TextField
+        label="Correo"
+        name="email"
+        type="email"
+        value={formData.email}
+        onChange={handleChange}
+        fullWidth
+        required
+      />
+      <TextField
+        label="Contraseña"
+        name="password"
+        type="password"
+        value={formData.password}
+        onChange={handleChange}
+        fullWidth
+        required
+      />
 
-      <Button type="submit" variant="contained" color="primary" disabled={loading}>
+      <Button
+        type="submit"
+        variant="contained"
+        color="primary"
+        disabled={loading}
+      >
         {loading ? "Registrando..." : "Registrarse"}
       </Button>
-    </form>
+
+      <Link
+        component="button"
+        variant="body2"
+        onClick={() => setIsRegister(false)}
+      >
+        ¿Ya tienes cuenta? Inicia sesión aquí
+      </Link>
+    </Box>
   );
 }
