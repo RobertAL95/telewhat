@@ -1,10 +1,9 @@
 'use client'
-
 import { Box, Typography, TextField, Button } from '@mui/material'
-import { Chat } from '../../app/context/ChatContext'
+import { Chat as ChatType } from '../../app/data/chatData' // IMPORTAR desde chatData
 
 interface ChatUIProps {
-  chat: Chat
+  chat: ChatType
   newMessage: string
   setNewMessage: (msg: string) => void
   onSend: () => void
@@ -44,6 +43,7 @@ export function ChatUI({ chat, newMessage, setNewMessage, onSend }: ChatUIProps)
           placeholder="Escribe un mensaje"
           value={newMessage}
           onChange={e => setNewMessage(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && onSend()}
         />
         <Button variant="contained" onClick={onSend}>
           Enviar

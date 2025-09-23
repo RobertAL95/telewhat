@@ -1,52 +1,34 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { ChatProvider, useChatContext } from '../context/ChatContext'
+import { useChatContext } from '../context/ChatContext'
+import { Dialog, DialogContent, Typography, TextField, Button, Box } from '@mui/material'
 import ChatList from '../../components/ChatList'
-import Chat from '../../components/chat'
-import {
-  Box,
-  useMediaQuery,
-  Dialog,
-  DialogContent,
-  Typography,
-  Button,
-  TextField,
-} from '@mui/material'
+import ChatComponent from '../../components/chat'
 
-function ChatGate() {
-  const isMobile = useMediaQuery('(max-width:600px)')
-  const searchParams = useSearchParams()
-  const router = useRouter()
+export default function ChatPage() {
   const {
-    isRegistered,
+    isGuest,
+    isLoading,
     participantName,
     updateParticipantName,
     registerParticipant,
-    creator,
-    setCreator,
-    roomId,
-    setRoomId,
+    chats,
+    selectedChatId,
+    selectChat,
+    sendMessage,
   } = useChatContext()
 
-  useEffect(() => {
-    const room = searchParams.get('room')
-    if (!room) {
-      // Usuario es creador
-      const newRoom = crypto.randomUUID()
-      setRoomId(newRoom)
-      setCreator(true)
-      router.replace(`/chat?room=${newRoom}`)
-    } else {
-      // Usuario es invitado
-      setRoomId(room)
-      setCreator(false)
-    }
-  }, [searchParams, router, setRoomId, setCreator])
+  // Esperar a que se cargue la info del usuario
+  if (isLoading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}>
+        <Typography variant="h6">Cargando...</Typography>
+      </Box>
+    )
+  }
 
-  if (!isRegistered && !creator) {
-    // Invitado debe ingresar nombre
+  // Modal para invitados sin nombre
+  if (isGuest && !participantName) {
     return (
       <Dialog open fullScreen>
         <DialogContent sx={{ textAlign: 'center', p: 4 }}>
@@ -63,9 +45,7 @@ function ChatGate() {
           <Button
             variant="contained"
             fullWidth
-            onClick={() =>
-              participantName?.trim() && registerParticipant(participantName)
-            }
+            onClick={() => participantName?.trim() && registerParticipant(participantName)}
           >
             Entrar al chat
           </Button>
@@ -74,42 +54,24 @@ function ChatGate() {
     )
   }
 
-  if (creator && !isRegistered) {
-    // Creador solo ve link
-    const link = typeof window !== 'undefined' ? window.location.href : ''
-    return (
-      <Dialog open fullScreen>
-        <DialogContent sx={{ textAlign: 'center', p: 4 }}>
-          <Typography variant="h6" mb={2}>
-            Comparte este link para que alguien se una al chat
-          </Typography>
-          <Button variant="contained" onClick={() => navigator.clipboard.writeText(link)}>
-            Copiar link
-          </Button>
-        </DialogContent>
-      </Dialog>
-    )
-  }
-
-  // Chat listo para usarse
+  // Layout principal del chat
   return (
-    <Box display="flex" height="100vh">
-      {!isMobile && (
-        <Box width="30%">
-          <ChatList />
-        </Box>
-      )}
-      <Box flex={1}>
-        <Chat />
+    <Box sx={{ display: 'flex', height: '100vh' }}>
+      <Box sx={{ width: '300px', borderRight: '1px solid #ccc' }}>
+        <ChatList chats={chats} selectedChatId={selectedChatId} selectChat={selectChat} />
+      </Box>
+      <Box sx={{ flex: 1 }}>
+        {selectedChatId && chats.find(c => c.id === selectedChatId) ? (
+          <ChatComponent
+            chat={chats.find((c) => c.id === selectedChatId)!} // ya sabemos que existe
+            sendMessage={(text) => sendMessage(selectedChatId, text)}
+          />
+        ) : (
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+            <Typography variant="h6">Selecciona un chat para comenzar</Typography>
+          </Box>
+        )}
       </Box>
     </Box>
-  )
-}
-
-export default function ChatPage() {
-  return (
-    <ChatProvider>
-      <ChatGate />
-    </ChatProvider>
   )
 }

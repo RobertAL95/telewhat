@@ -1,5 +1,4 @@
 'use client'
-
 import { ChatUI } from './UI'
 import { useChat } from './Logica'
 import { Box, Typography, Button, Dialog, DialogContent, DialogActions } from '@mui/material'
