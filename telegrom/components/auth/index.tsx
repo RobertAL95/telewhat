@@ -1,21 +1,17 @@
+"use client";
 
-'use client'
+import AuthLayout from "./AuthLayout";
+import LoginForm from "./LoginForm";
+import RegisterForm from "./RegisterForm";
+import { useAuth } from '../../context/AuthContext';
 
-import { useChatLogic } from './Logica'
-import { ChatUI } from './UI'
-import { Typography, Box } from '@mui/material'
 
-const Chat = () => {
-  const { currentChat, sendMessage } = useChatLogic()
+export default function AuthComponent() {
+  const { authMode } = useAuth();
 
-  if (!currentChat)
-    return (
-      <Box p={2}>
-        <Typography variant="h6">Selecciona un chat para comenzar</Typography>
-      </Box>
-    )
-
-  return <ChatUI messages={currentChat.messages} onSend={sendMessage} />
+  return (
+    <AuthLayout>
+      {authMode === "login" ? <LoginForm /> : <RegisterForm />}
+    </AuthLayout>
+  );
 }
-
-export default Chat

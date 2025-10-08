@@ -1,55 +1,98 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { Box, TextField, Button, Link, Alert } from '@mui/material'
-import { useAuth } from './AuthContext'
-import { useRouter } from 'next/navigation'
-import { loginUser } from '../../app/data/authData'
+import { useState } from "react";
+import { TextField, Button } from "@mui/material";
+import { useUser } from '../../context/utils/UserContext';
+import AuthLayout from "./AuthLayout";
+import { useAppPhase } from '../../context/AppPhaseContext';
 
 export default function LoginForm() {
-  const { setIsRegister } = useAuth()
-  const router = useRouter()
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { login } = useUser();
+  const { phase, goToPhase } = useAppPhase();
 
-  const [formData, setFormData] = useState({ email: '', password: '' })
+  const [loginData, setLoginData] = useState({ email: "", password: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [btnLoading, setBtnLoading] = useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value })
-  }
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
+  const handleLogin = async () => {
+    setError(null);
+    setBtnLoading(true);
 
     try {
-      const token = await loginUser(formData)
-      console.log('Token recibido:', token)
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(loginData),
+      });
 
-      // Redirige al home o dashboard
-      router.push('/chat')
+      if (!res.ok) throw new Error("Correo o contraseña incorrectos");
+
+      const data = await res.json();
+      const backendUser = data.body;
+
+      await login("token_dummy_si_lo_necesitas", backendUser);
+
+      // Transición loading → skeleton → chat
+      goToPhase('loading');
+      setTimeout(() => goToPhase('skeleton'), 300);
+      setTimeout(() => goToPhase('chat'), 1000);
+
     } catch (err: any) {
-      setError(err?.response?.data?.message || err.message || 'Error al iniciar sesión')
+      console.error("❌ Error login:", err);
+      setError(err.message || "Error al iniciar sesión");
     } finally {
-      setLoading(false)
+      setBtnLoading(false);
     }
-  }
+  };
+
+  const updateLoginData = (fields: Partial<typeof loginData>) => {
+    setLoginData(prev => ({ ...prev, ...fields }));
+  };
+
+  if (phase !== 'auth') return null;
 
   return (
-    <Box component="form" display="flex" flexDirection="column" gap={2} onSubmit={handleSubmit}>
-      {error && <Alert severity="error">{error}</Alert>}
-
-      <TextField label="Correo" name="email" type="email" value={formData.email} onChange={handleChange} required />
-      <TextField label="Contraseña" name="password" type="password" value={formData.password} onChange={handleChange} required />
-
-      <Button variant="contained" color="primary" type="submit" disabled={loading}>
-        {loading ? 'Ingresando...' : 'Ingresar'}
-      </Button>
-
-      <Link component="button" variant="body2" onClick={() => setIsRegister(true)}>
-        ¿No tienes cuenta? Regístrate aquí
-      </Link>
-    </Box>
-  )
+    <AuthLayout title="Iniciar Sesión" error={error}>
+      <form
+        onSubmit={e => {
+          e.preventDefault();
+          handleLogin();
+        }}
+      >
+        <TextField
+          label="Correo"
+          fullWidth
+          sx={{ mb: 2 }}
+          value={loginData.email}
+          onChange={e => updateLoginData({ email: e.target.value })}
+          autoComplete="username"
+        />
+        <TextField
+          label="Contraseña"
+          type="password"
+          fullWidth
+          sx={{ mb: 3 }}
+          value={loginData.password}
+          onChange={e => updateLoginData({ password: e.target.value })}
+          autoComplete="current-password"
+        />
+        <Button
+          variant="contained"
+          fullWidth
+          sx={{
+            mb: 2,
+            py: 1.5,
+            fontWeight: 'bold',
+            transition: '0.3s',
+            ':hover': { transform: 'scale(1.03)' }
+          }}
+          type="submit"
+          disabled={btnLoading}
+        >
+          {btnLoading ? "Iniciando..." : "Entrar"}
+        </Button>
+      </form>
+    </AuthLayout>
+  );
 }

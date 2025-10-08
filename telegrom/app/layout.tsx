@@ -1,20 +1,31 @@
-// app/layout.tsx
-import { ReactNode } from 'react'
-import { ChatProvider } from './context/ChatContext'
-import ThemeWrapper from './ThemeWrapper'
+'use client';
 
-interface RootLayoutProps {
-  children: ReactNode
-}
+import { ReactNode } from 'react';
+import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
+import { GlobalProvider } from '../context/GlobalProvider'; // <- tu nuevo proveedor global
 
-export default function RootLayout({ children }: RootLayoutProps) {
+const theme = createTheme({
+  palette: {
+    mode: 'light',
+    primary: { main: '#0088cc' },
+    background: { default: '#f5f8fa' },
+  },
+  typography: {
+    fontFamily: 'Roboto, sans-serif',
+  },
+});
+
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="es">
+    <html lang="en">
       <body>
-        <ChatProvider>
-          <ThemeWrapper>{children}</ThemeWrapper>
-        </ChatProvider>
+        <ThemeProvider theme={theme}>
+          <CssBaseline />
+          <GlobalProvider>
+            {children}
+          </GlobalProvider>
+        </ThemeProvider>
       </body>
     </html>
-  )
+  );
 }

@@ -1,12 +1,7 @@
-'use client'
+'use client';
 
-import AuthCard from '../../components/auth/AuthCard'
-import { AuthCardProvider } from '../context/AuthCardContext'
+import AuthComponent from '../../components/auth';
 
-export default function RegistroPage() {
-  return (
-    <AuthCardProvider>
-      <AuthCard />
-    </AuthCardProvider>
-  )
+export default function AuthPage() {
+  return <AuthComponent />;
 }
