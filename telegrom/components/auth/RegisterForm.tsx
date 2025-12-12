@@ -1,93 +1,109 @@
 'use client';
+import { useState } from 'react';
+import {
+  Box,
+  TextField,
+  Button,
+  Alert,
+  CircularProgress,
+} from '@mui/material';
+import { register } from '@/libs/auth';
 
-import { useState } from "react";
-import { TextField, Button } from "@mui/material";
-import { useAuth } from '../../context/AuthContext';
-import AuthLayout from "./AuthLayout";
-import { useAppPhase } from '../../context/AppPhaseContext';
+interface RegisterFormProps {
+  onSuccess: () => void;
+}
 
-export default function RegisterForm() {
-  const { registerData, updateRegisterData, register, setAuthMode } = useAuth();
-  const { phase, goToPhase } = useAppPhase();
-
+export default function RegisterForm({ onSuccess }: RegisterFormProps) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
-  const handleRegister = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
-    setError(null);
-    try {
-      await register();
-      setAuthMode("login");
-      alert("Usuario registrado con éxito, ahora inicia sesión");
+    setError('');
+    setSuccessMsg('');
 
-      goToPhase('auth');
-    } catch (e: any) {
-      setError(e.message || "Error al registrar usuario");
+    try {
+      const res = await register({ name, email, password });
+
+      if (!res.user) {
+        throw new Error(res.message || 'Error al registrar usuario');
+      }
+
+      setSuccessMsg('¡Cuenta creada! Redirigiendo al login...');
+      
+      // Esperar brevemente para que el usuario lea el mensaje
+      setTimeout(() => {
+        onSuccess(); // Cambiar tab a login
+      }, 1500);
+
+    } catch (err: any) {
+      console.error('❌ Error registro:', err);
+      setError(err.message || 'Error al registrar usuario');
     } finally {
       setLoading(false);
     }
   };
 
-  if (phase !== 'auth') return null;
-
   return (
-    <AuthLayout title="Registrarse" error={error}>
-      <form
-        onSubmit={e => {
-          e.preventDefault();
-          handleRegister();
+    <Box component="form" onSubmit={handleSubmit}>
+      <TextField
+        label="Nombre completo"
+        fullWidth
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        margin="normal"
+        required
+      />
+
+      <TextField
+        label="Correo electrónico"
+        type="email"
+        fullWidth
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        margin="normal"
+        required
+      />
+
+      <TextField
+        label="Contraseña"
+        type="password"
+        fullWidth
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        margin="normal"
+        helperText="Mínimo 6 caracteres"
+        required
+      />
+
+      {error && (
+        <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>
+      )}
+
+      {successMsg && (
+        <Alert severity="success" sx={{ mt: 2 }}>{successMsg}</Alert>
+      )}
+
+      <Button
+        type="submit"
+        fullWidth
+        variant="contained"
+        disabled={loading}
+        sx={{
+          mt: 3,
+          py: 1.5,
+          textTransform: 'none',
+          fontWeight: 'bold',
+          borderRadius: 2
         }}
       >
-        <TextField
-          label="Nombre"
-          fullWidth
-          sx={{ mb: 2 }}
-          value={registerData.name}
-          onChange={e => updateRegisterData({ name: e.target.value })}
-          autoComplete="name"
-        />
-        <TextField
-          label="Correo"
-          fullWidth
-          sx={{ mb: 2 }}
-          value={registerData.email}
-          onChange={e => updateRegisterData({ email: e.target.value })}
-          autoComplete="email"
-        />
-        <TextField
-          label="Contraseña"
-          type="password"
-          fullWidth
-          sx={{ mb: 3 }}
-          value={registerData.password}
-          onChange={e => updateRegisterData({ password: e.target.value })}
-          autoComplete="new-password"
-        />
-        <Button
-          variant="contained"
-          fullWidth
-          sx={{
-            mb: 2,
-            py: 1.5,
-            fontWeight: 'bold',
-            transition: '0.3s',
-            ':hover': { transform: 'scale(1.03)' }
-          }}
-          type="submit"
-          disabled={loading}
-        >
-          {loading ? "Registrando..." : "Registrarse"}
-        </Button>
-        <Button
-          variant="text"
-          fullWidth
-          type="button"
-          onClick={() => setAuthMode("login")}
-        >
-          ¿Ya tienes cuenta? Iniciar sesión
-        </Button>
-      </form>
-    </AuthLayout>
+        {loading ? <CircularProgress size={24} color="inherit" /> : 'Crear Cuenta'}
+      </Button>
+    </Box>
   );
 }

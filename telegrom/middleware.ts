@@ -1,25 +1,41 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-// Rutas que requieren autenticación
-const protectedRoutes = ['/profile', '/chat'];
+export function middleware(request: NextRequest) {
+  // 1. Obtener la cookie correcta ('at')
+  // El backend establece 'at' (Access Token)
+  const hasSession = request.cookies.has('at');
+  
+  const { pathname } = request.nextUrl;
+  const pathLower = pathname.toLowerCase();
 
-export function middleware(req: NextRequest) {
-  const token = req.cookies.get('token')?.value;
+  // 2. Definir rutas
+  const isAuthRoute = pathLower.startsWith('/Auth'); // Login/Register
+  const isProtectedRoute = pathLower.startsWith('/Chat') || pathLower.startsWith('/profile');
 
-  // Si no hay token y la ruta está protegida → redirigir al login
-  if (protectedRoutes.some((route) => req.nextUrl.pathname.startsWith(route))) {
-    if (!token) {
-      const loginUrl = new URL('/', req.url); // raíz → login
-      return NextResponse.redirect(loginUrl);
-    }
+  // CASO A: Usuario intenta entrar a ruta protegida SIN sesión
+  if (isProtectedRoute && !hasSession) {
+    console.log(`[Flym Middleware] 🔒 Acceso denegado a ${pathname}. Redirigiendo a /auth`);
+    return NextResponse.redirect(new URL('/Auth', request.url));
   }
 
-  // Si hay token → permitir el acceso
+  // CASO B: Usuario YA logueado intenta entrar al Login (Redirigir al chat)
+  // Esto mejora la UX: si ya tienes cookie, no te dejo ver el formulario de login de nuevo
+  if (isAuthRoute && hasSession) {
+    return NextResponse.redirect(new URL('/Chat', request.url));
+  }
+
+  // Para el resto de rutas (Home, Invite, etc.), dejar pasar
   return NextResponse.next();
 }
 
-// Middleware activo solo en rutas definidas
+// 🔧 Configuración del Matcher
+// Aplicar solo a las rutas que nos interesan controlar
 export const config = {
-  matcher: ['/profile/:path*', '/chat/:path*'],
+  matcher: [
+    '/Chat/:path*', 
+    '/profile/:path*', 
+    '/Auth/:path*',
+    // Excluir api, _next, static, etc.
+  ],
 };

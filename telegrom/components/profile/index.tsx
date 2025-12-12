@@ -1,61 +1,75 @@
 'use client';
 
-import React from 'react';
-import { Box, Card, CardContent, Typography, Button, CircularProgress, Alert } from '@mui/material';
-import { useUser } from '../../context/utils/UserContext';
+import { useEffect, useState } from 'react';
+import { Box, CircularProgress, Typography } from '@mui/material';
+import { orchestrator } from '@/Phases/Phases';
+import { apiFetch } from '@/libs/apiClient';
+import type { UserProfile } from './types';
+import ProfileView from './profileView';
 
 export default function Profile() {
-  const { user, logout, loading, error } = useUser();
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const cookies = orchestrator.getCookies();
+    if (!cookies) return; // ⏳ espera hidratación de cookies
+
+    (async () => {
+      try {
+        const data = await apiFetch('/auth/me'); // fetch con cookies incluidas
+        setProfile(data);
+      } catch (err) {
+        console.warn('[Flym] Sesión no válida o expirada → redirigiendo a Auth');
+        orchestrator.clearCookies();
+        orchestrator.goToPhase('Auth');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
   if (loading)
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}>
+      <Box
+        sx={{
+          height: '100vh',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
         <CircularProgress />
       </Box>
     );
 
-  if (error || !user)
+  if (!profile)
     return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 10 }}>
-        <Alert severity="error">{error || 'No hay usuario logueado'}</Alert>
+      <Box
+        sx={{
+          height: '100vh',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
+        <Typography>No se pudo cargar el perfil.</Typography>
       </Box>
     );
 
   return (
-    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10, px: 2 }}>
-      <Card sx={{ width: 400, p: 2 }}>
-        <CardContent>
-          <Typography variant="h4" gutterBottom>
-            Perfil
-          </Typography>
-
-          {user.avatar && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-              <img
-                src={user.avatar}
-                alt="Avatar"
-                style={{ width: 100, height: 100, borderRadius: '50%' }}
-              />
-            </Box>
-          )}
-
-          <Typography variant="body1">
-            <strong>Nombre:</strong> {user.name}
-          </Typography>
-          <Typography variant="body1">
-            <strong>Email:</strong> {user.email}
-          </Typography>
-          <Typography variant="body1">
-            <strong>ID:</strong> {user.id}
-          </Typography>
-
-          <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
-            <Button variant="contained" color="error" onClick={async () => await logout()}>
-              Cerrar sesión
-            </Button>
-          </Box>
-        </CardContent>
-      </Card>
+    <Box
+      sx={{
+        height: '100vh',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#fff',
+        px: 2,
+      }}
+    >
+      <ProfileView user={profile} />
     </Box>
   );
 }
+

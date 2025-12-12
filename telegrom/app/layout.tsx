@@ -1,29 +1,27 @@
 'use client';
+import { GlobalProvider } from '@/context/GlobalContext';
+import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 
-import { ReactNode } from 'react';
-import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
-import { GlobalProvider } from '../context/GlobalProvider'; // <- tu nuevo proveedor global
-
-const theme = createTheme({
+const darkTheme = createTheme({
   palette: {
-    mode: 'light',
-    primary: { main: '#0088cc' },
-    background: { default: '#f5f8fa' },
+    mode: 'dark',
+    primary: { main: '#00a884' }, // verde WhatsApp
+    background: {
+      default: '#121b22',
+      paper: '#202c33',
+    },
+    text: { primary: '#e9edef', secondary: '#8696a0' },
   },
-  typography: {
-    fontFamily: 'Roboto, sans-serif',
-  },
+  typography: { fontFamily: 'Roboto, sans-serif' },
 });
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="es">
       <body>
-        <ThemeProvider theme={theme}>
+        <ThemeProvider theme={darkTheme}>
           <CssBaseline />
-          <GlobalProvider>
-            {children}
-          </GlobalProvider>
+          <GlobalProvider>{children}</GlobalProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -1,11 +1,19 @@
-"use client";
+'use client';
+import { Box } from '@mui/material';
+import ProfileView from '@/components/profile/profileView';
 
-import Profile from "../../components/profile";
-import { withAuth } from "../../components/auth/withAuth"; // ruta al HOC
-
-function ProfilePage() {
-  return <Profile />;
+export default function ProfilePage() {
+  return (
+    <Box
+      sx={{
+        height: '100vh',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'background.default',
+      }}
+    >
+      <ProfileView />
+    </Box>
+  );
 }
-
-// exportamos envuelto en withAuth para proteger la página
-export default withAuth(ProfilePage);

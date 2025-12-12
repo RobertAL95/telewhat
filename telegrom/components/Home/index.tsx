@@ -1,24 +1,15 @@
 'use client';
 
-import React, { useEffect } from 'react';
-import { Box, Typography, Button, Avatar } from '@mui/material';
+import { Box, Button, Typography } from '@mui/material';
+import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '../../context/AuthContext';
 
-const HomeComponent = () => {
+export default function Home() {
   const router = useRouter();
-  const { setAuthMode } = useAuth();
 
-  // Función para ir a auth con login mode
-  const goToLogin = () => {
-    setAuthMode('login');
-    router.push('/auth');
-  };
-
-  // Función para ir a auth con register mode
-  const goToRegister = () => {
-    setAuthMode('register');
-    router.push('/auth');
+  const handleStart = () => {
+    // Redirección estándar a la ruta de autenticación
+    router.push('/auth'); 
   };
 
   return (
@@ -26,55 +17,69 @@ const HomeComponent = () => {
       sx={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
-        width: '100%',
-        alignItems: 'center',
         justifyContent: 'center',
-        bgcolor: '#f5f8fa',
+        alignItems: 'center',
+        height: '100vh',
+        // 'background.default' toma el color definido en tu ThemeProvider (oscuro o claro)
+        bgcolor: 'background.default', 
         textAlign: 'center',
-        px: 2,
+        px: 3,
+        overflow: 'hidden', // Evita scrollbars innecesarios
       }}
     >
-      <Avatar
-        sx={{
-          bgcolor: '#0b93d5',
-          width: 80,
-          height: 80,
-          mb: 3,
-          fontSize: 36,
-        }}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.7 }}
       >
-        F
-      </Avatar>
+        <Typography
+          variant="h3" // Un poco más grande para impacto visual
+          fontWeight="bold"
+          gutterBottom
+          // 'text.primary' asegura que el texto se vea bien en fondo oscuro o claro
+          sx={{ color: 'text.primary', mb: 2 }} 
+        >
+          Bienvenido a{' '}
+          <Typography
+            component="span"
+            variant="h3"
+            fontWeight="bold"
+            // 'primary.main' usa el color principal de tu marca (ej. el verde o azul definido)
+            sx={{ color: 'primary.main' }} 
+          >
+            Flym
+          </Typography>
+        </Typography>
 
-      <Typography variant="h3" gutterBottom sx={{ fontWeight: 'bold', color: '#0b93d5' }}>
-        Bienvenidos a Flym
-      </Typography>
+        <Typography 
+          variant="body1" 
+          sx={{ color: 'text.secondary', mb: 4, maxWidth: 600 }}
+        >
+          Tu app de mensajería efímera, segura y rápida.
+        </Typography>
 
-      <Typography variant="h6" gutterBottom sx={{ color: 'text.secondary', mb: 4 }}>
-        Tu app de mensajería <b>RÁPIDA</b> y <b>EFÍMERA</b>
-      </Typography>
-
-      <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
         <Button
           variant="contained"
-          color="primary"
           size="large"
-          onClick={goToRegister}
+          onClick={handleStart}
+          sx={{
+            width: '100%',
+            maxWidth: 280,
+            py: 1.5,
+            borderRadius: 3,
+            fontSize: '1.1rem',
+            textTransform: 'none', // Estilo más moderno sin mayúsculas forzadas
+            boxShadow: 3,
+            '&:hover': {
+              boxShadow: 6,
+              transform: 'translateY(-2px)',
+              transition: 'all 0.2s ease-in-out'
+            }
+          }}
         >
-          Registrarse
+          Comenzar
         </Button>
-        <Button
-          variant="outlined"
-          color="primary"
-          size="large"
-          onClick={goToLogin}
-        >
-          Entrar
-        </Button>
-      </Box>
+      </motion.div>
     </Box>
   );
-};
-
-export default HomeComponent;
+}

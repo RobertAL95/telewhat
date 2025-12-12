@@ -1,104 +1,161 @@
 'use client';
+import { useState, useRef, useEffect } from 'react';
+import {
+  Box,
+  TextField,
+  IconButton,
+  List,
+  ListItem,
+  Typography,
+  Avatar,
+} from '@mui/material';
+import SendIcon from '@mui/icons-material/Send';
+import { useGlobal } from '@/context/GlobalContext';
+import { sendMessage } from '@/libs/wsClient'; // Usamos wsClient.ts
+import { useChatWS } from '@/hooks/useChatWS';
 
-import { useEffect, useRef, useState } from 'react';
-import { Box, Typography, Avatar, Button, InputBase } from '@mui/material';
-import { useUser } from '../../context/utils/UserContext';
-import { useSocket } from './data/socket';
+interface ChatWindowProps {
+    roomId?: string; // Opcional, ya que lo tomamos del contexto global generalmente
+}
 
-type Message = { sender: string; text: string };
+export default function ChatWindow({ roomId }: ChatWindowProps) {
+  const { state, dispatch } = useGlobal();
+  const activeId = roomId || state.activeChatId;
+  const messages = activeId ? state.messages[activeId] || [] : [];
+  
+  const [input, setInput] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-export default function ChatWindow({
-  selectedChatId,
-  guestName,
-}: {
-  selectedChatId?: string;
-  guestName?: string;
-}) {
-  const { user } = useUser();
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [newMessage, setNewMessage] = useState('');
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  // Hook de WebSocket: Se encarga de la conexión y recepción de mensajes
+  useChatWS();
 
-  const displayName = guestName || user?.name || 'Invitado';
-
-  const { sendMessage } = useSocket(
-    selectedChatId,
-    (msg) => setMessages((prev) => [...prev, msg]),
-    displayName
-  );
-
+  // Scroll al fondo al recibir mensajes
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  useEffect(() => {
-    setMessages([]);
-  }, [selectedChatId]);
-
   const handleSend = () => {
-    if (!newMessage.trim()) return;
-    const msg: Message = { sender: displayName, text: newMessage };
-    sendMessage(newMessage);
-    setMessages((prev) => [...prev, msg]);
-    setNewMessage('');
+    if (!activeId || !input.trim()) return;
+    
+    // 1. Enviar por WS
+    sendMessage(input.trim()); 
+
+    // 2. Optimistic UI: Agregar mensaje localmente
+    // (Opcional: puedes esperar al ACK del servidor si prefieres)
+    dispatch({
+      type: 'ADD_MESSAGE',
+      payload: {
+        chatId: activeId,
+        msg: {
+          from: state.user?.id,
+          text: input.trim(),
+          timestamp: Date.now(),
+          isSelf: true // Flag útil para renderizado
+        }
+      }
+    });
+
+    setInput('');
   };
 
-  if (!selectedChatId) {
-    return (
-      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Typography variant="h6" color="text.secondary">
-          Selecciona un chat para comenzar
-        </Typography>
-      </Box>
-    );
-  }
+  if (!activeId) return null; // O mostrar un placeholder
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, height: '100%', bgcolor: 'white', p: 2 }}>
-      <Box sx={{ flex: 1, overflowY: 'auto', mb: 2 }}>
-        {messages.map((msg, idx) => {
-          const isMe = msg.sender === displayName;
-          return (
-            <Box
-              key={idx}
-              sx={{ display: 'flex', justifyContent: isMe ? 'flex-end' : 'flex-start', mb: 1 }}
-            >
-              {!isMe && <Avatar sx={{ width: 30, height: 30, mr: 1 }}>{msg.sender[0]}</Avatar>}
-              <Box
-                sx={{
-                  bgcolor: isMe ? '#DCF8C6' : '#F1F0F0',
-                  color: 'black',
-                  px: 2,
-                  py: 1,
-                  borderRadius: 2,
-                  maxWidth: '70%',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {!isMe && (
-                  <Typography variant="caption" sx={{ display: 'block', fontWeight: 500 }}>
-                    {msg.sender}
-                  </Typography>
-                )}
-                <Typography variant="body2">{msg.text}</Typography>
-              </Box>
-            </Box>
-          );
-        })}
-        <div ref={messagesEndRef} />
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: '#0b141a' }}>
+      {/* Header del Chat */}
+      <Box
+        sx={{
+          height: 60,
+          bgcolor: '#202c33',
+          display: 'flex',
+          alignItems: 'center',
+          px: 2,
+          borderBottom: '1px solid #2a3942',
+        }}
+      >
+        <Avatar sx={{ mr: 2, bgcolor: '#00a884' }}>?</Avatar>
+        <Typography variant="body1" sx={{ color: '#e9edef' }}>
+           Chat Activo
+        </Typography>
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 1 }}>
-        <InputBase
-          sx={{ flex: 1, border: '1px solid #ddd', borderRadius: 2, px: 2, py: 1 }}
-          placeholder="Escribe un mensaje..."
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
+      {/* Lista de Mensajes */}
+      <List sx={{ flex: 1, overflowY: 'auto', p: 2, backgroundImage: 'url(/images/chat-bg.png)' }}>
+        {messages.map((m, i) => {
+          const isSelf = m.from === state.user?.id || m.isSelf;
+          const isSystem = m.from === 'system';
+
+          return (
+            <ListItem
+              key={i}
+              sx={{
+                justifyContent: isSystem ? 'center' : isSelf ? 'flex-end' : 'flex-start',
+                mb: 1
+              }}
+            >
+              <Box
+                sx={{
+                  bgcolor: isSystem ? 'rgba(32, 44, 51, 0.8)' : isSelf ? '#005c4b' : '#202c33',
+                  color: isSystem ? '#ffd279' : '#e9edef',
+                  px: 2,
+                  py: 1,
+                  borderRadius: isSystem ? 4 : 2,
+                  borderTopRightRadius: isSelf ? 0 : 2,
+                  borderTopLeftRadius: !isSelf && !isSystem ? 0 : 2,
+                  maxWidth: '70%',
+                  fontSize: isSystem ? '0.85rem' : '1rem',
+                  boxShadow: 1
+                }}
+              >
+                {m.text}
+                <Typography variant="caption" display="block" textAlign="right" sx={{ mt: 0.5, opacity: 0.6, fontSize: '0.7rem' }}>
+                    {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Typography>
+              </Box>
+            </ListItem>
+          );
+        })}
+        <div ref={scrollRef} />
+      </List>
+
+      {/* Input Area */}
+      <Box
+        sx={{
+          bgcolor: '#202c33',
+          px: 2,
+          py: 1.5,
+          display: 'flex',
+          alignItems: 'center',
+        }}
+      >
+        <TextField
+          variant="outlined"
+          fullWidth
+          size="small"
+          placeholder="Escribe un mensaje"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          sx={{
+            mr: 1,
+            '& .MuiOutlinedInput-root': {
+              bgcolor: '#2a3942',
+              borderRadius: 2,
+              color: '#e9edef',
+              '& fieldset': { border: 'none' }
+            }
+          }}
         />
-        <Button variant="contained" sx={{ bgcolor: '#0084FF', color: 'white' }} onClick={handleSend}>
-          Enviar
-        </Button>
+        <IconButton 
+            onClick={handleSend}
+            sx={{ 
+                color: '#00a884',
+                bgcolor: input.trim() ? '#2a3942' : 'transparent',
+                '&:hover': { bgcolor: '#2a3942' } 
+            }}
+        >
+          <SendIcon />
+        </IconButton>
       </Box>
     </Box>
   );

@@ -14,11 +14,17 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "baseUrl": "app",
+
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["*"]   // ⬅️ NO ./src/* porque no tienes carpeta src
+      "@/*": ["*"]
     },
-    "plugins": [{ "name": "next" }]
+
+    "types": ["node"],
+    "plugins": [{ "name": "next" }],
+
+    // ✅ Silencia el aviso de deprecación hasta migrar a TS7
+    "ignoreDeprecations": "6.0"
   },
   "include": [
     "next-env.d.ts",

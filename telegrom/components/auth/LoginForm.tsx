@@ -1,98 +1,106 @@
 'use client';
-
-import { useState } from "react";
-import { TextField, Button } from "@mui/material";
-import { useUser } from '../../context/utils/UserContext';
-import AuthLayout from "./AuthLayout";
-import { useAppPhase } from '../../context/AppPhaseContext';
+import { useState } from 'react';
+import {
+  Box,
+  TextField,
+  Button,
+  Alert,
+  CircularProgress,
+} from '@mui/material';
+import { useRouter } from 'next/navigation';
+import { useGlobal } from '@/context/GlobalContext';
+import { login } from '@/libs/auth';
 
 export default function LoginForm() {
-  const { login } = useUser();
-  const { phase, goToPhase } = useAppPhase();
+  const router = useRouter();
+  const { dispatch } = useGlobal();
 
-  const [loginData, setLoginData] = useState({ email: "", password: "" });
-  const [error, setError] = useState<string | null>(null);
-  const [btnLoading, setBtnLoading] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleLogin = async () => {
-    setError(null);
-    setBtnLoading(true);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
 
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(loginData),
-      });
+      // 1. Llamada al backend (libs/auth.ts maneja cookies HttpOnly automáticamente)
+      const res = await login({ email, password });
 
-      if (!res.ok) throw new Error("Correo o contraseña incorrectos");
+      // 2. Normalización Defensiva:
+      // Verificamos si 'res' es el usuario directamente (tiene id o _id)
+      // O si viene dentro de una propiedad .user
+      const user = (res.id || res._id) ? res : (res.user || res.data?.user);
 
-      const data = await res.json();
-      const backendUser = data.body;
+      if (!user) {
+        throw new Error(res.message || 'Credenciales inválidas');
+      }
 
-      await login("token_dummy_si_lo_necesitas", backendUser);
+      // 3. Guardar usuario en estado global
+      // Esto actualiza la UI inmediatamente para evitar rebotes
+      dispatch({ type: 'SET_USER', payload: user });
 
-      // Transición loading → skeleton → chat
-      goToPhase('loading');
-      setTimeout(() => goToPhase('skeleton'), 300);
-      setTimeout(() => goToPhase('chat'), 1000);
+      // 4. Redirigir al chat
+      console.log('✅ Login exitoso, redirigiendo...');
+      router.push('/Chat'); // Asegúrate que tu ruta coincida con la carpeta (ej. /chat o /Chat)
 
     } catch (err: any) {
-      console.error("❌ Error login:", err);
-      setError(err.message || "Error al iniciar sesión");
+      console.error('❌ Error login:', err);
+      setError(err.message || 'Error al iniciar sesión. Verifica tus datos.');
     } finally {
-      setBtnLoading(false);
+      setLoading(false);
     }
   };
 
-  const updateLoginData = (fields: Partial<typeof loginData>) => {
-    setLoginData(prev => ({ ...prev, ...fields }));
-  };
-
-  if (phase !== 'auth') return null;
-
   return (
-    <AuthLayout title="Iniciar Sesión" error={error}>
-      <form
-        onSubmit={e => {
-          e.preventDefault();
-          handleLogin();
+    <Box component="form" onSubmit={handleSubmit}>
+      <TextField
+        label="Correo electrónico"
+        type="email"
+        fullWidth
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        margin="normal"
+        required
+        disabled={loading}
+        autoFocus
+      />
+
+      <TextField
+        label="Contraseña"
+        type="password"
+        fullWidth
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        margin="normal"
+        required
+        disabled={loading}
+      />
+
+      {error && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      <Button
+        type="submit"
+        fullWidth
+        variant="contained"
+        disabled={loading}
+        sx={{
+          mt: 3,
+          py: 1.5,
+          textTransform: 'none',
+          fontWeight: 'bold',
+          fontSize: '1rem',
+          borderRadius: 2
         }}
       >
-        <TextField
-          label="Correo"
-          fullWidth
-          sx={{ mb: 2 }}
-          value={loginData.email}
-          onChange={e => updateLoginData({ email: e.target.value })}
-          autoComplete="username"
-        />
-        <TextField
-          label="Contraseña"
-          type="password"
-          fullWidth
-          sx={{ mb: 3 }}
-          value={loginData.password}
-          onChange={e => updateLoginData({ password: e.target.value })}
-          autoComplete="current-password"
-        />
-        <Button
-          variant="contained"
-          fullWidth
-          sx={{
-            mb: 2,
-            py: 1.5,
-            fontWeight: 'bold',
-            transition: '0.3s',
-            ':hover': { transform: 'scale(1.03)' }
-          }}
-          type="submit"
-          disabled={btnLoading}
-        >
-          {btnLoading ? "Iniciando..." : "Entrar"}
-        </Button>
-      </form>
-    </AuthLayout>
+        {loading ? <CircularProgress size={24} color="inherit" /> : 'Entrar'}
+      </Button>
+    </Box>
   );
 }
