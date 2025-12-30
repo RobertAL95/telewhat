@@ -52,6 +52,7 @@ export default function InvitePage() {
   }, [decodedToken]);
 
   // 2. Aceptar invitación (Lógica corregida)
+// 2. Aceptar invitación (CORREGIDO PARA SINCRONIZACIÓN GLOBAL)
   const handleJoin = async () => {
     if (!guestName.trim()) {
       setError('Por favor, ingresa un nombre para unirte.');
@@ -62,7 +63,7 @@ export default function InvitePage() {
     setError('');
 
     try {
-      const res = await apiFetch('/invite/accept', {
+        const res = await apiFetch('/invite/accept', {
         method: 'POST',
         body: JSON.stringify({ 
           token: decodedToken, 
@@ -70,48 +71,48 @@ export default function InvitePage() {
         }),
       });
 
-      console.log('📡 Respuesta del Backend:', res); // Muestra qué llegó exactamente
-
-      // --- INICIO DE LÓGICA DEFENSIVA ---
-      // Normalizamos la respuesta: a veces viene dentro de 'body', a veces directo
+      // --- LÓGICA CORREGIDA ---
       const data = res.body || res;
-
-      // 1. Buscar Room ID (puede venir como roomId o chatId)
-      const roomId = data.roomId || data.chatId;
-      if (!roomId) {
-        throw new Error('El servidor no devolvió un ID de sala válido.');
-      }
-
-      // 2. Buscar datos del Usuario (puede venir como user, guest o data)
-      const userData = data.user || data.guest || data;
       
-      // 3. Obtener el ID del usuario (_id o id)
-      const userId = userData?._id || userData?.id;
+      // Datos del usuario (Guest)
+      const userData = data.user;
+      
+      // Datos del Chat (Que ahora vienen bonitos del backend)
+      const chatData = data.chat; 
 
-      if (!userId) {
-        throw new Error('El servidor no devolvió los datos del usuario invitado.');
+      if (!chatData || !userData) {
+        throw new Error('Datos incompletos del servidor.');
       }
-      // --- FIN DE LÓGICA DEFENSIVA ---
 
-      // Actualizar contexto global
+      // 1. Actualizar Usuario Global
       dispatch({
         type: 'SET_USER',
         payload: {
-          id: userId,
-          name: userData.name || guestName,
-          email: userData.email || 'guest@flym.com',
+          id: userData._id || userData.id,
+          name: userData.name,
+          email: userData.email,
           avatar: userData.avatar,
           isGuest: true,
         },
       });
 
-      // Establecer chat activo
-      dispatch({ type: 'SET_CHAT', payload: roomId });
+      // 2. 🔥 VINCULACIÓN VISUAL EXACTA
+      // Usamos los datos reales del backend. 
+      // El Guest verá el nombre del Host, no "Nuevo Grupo".
+      dispatch({
+        type: 'ADD_CHAT',
+        payload: {
+            id: chatData.id,
+            name: chatData.name, // "Juan Perez" (Nombre del Host)
+            lastMessage: chatData.lastMessage,
+            timestamp: chatData.timestamp,
+            avatar: chatData.avatar
+        }
+      });
 
-      // Redirigir
-      console.log('✅ Todo correcto. Redirigiendo al chat:', roomId);
-      router.push('/chat'); 
-
+      // 3. Activar y Redirigir
+      dispatch({ type: 'SET_ACTIVE_CHAT', payload: chatData.id });
+      router.push(`/chat/${chatData.id}`);
     } catch (err: any) {
       console.error('❌ Error aceptando invitación:', err);
       setError(err.message || 'No se pudo unir al chat.');

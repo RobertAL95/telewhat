@@ -1,69 +1,52 @@
 'use client';
 import { useEffect, useState, useRef } from "react";
 import {
-  Box,
-  Avatar,
-  IconButton,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemAvatar,
-  ListItemText,
-  Typography,
-  Divider,
-  Tooltip,
-  CircularProgress
+  Box, Avatar, IconButton, List, ListItem, ListItemButton, ListItemAvatar, ListItemText,
+  Typography, Divider, Tooltip, CircularProgress
 } from "@mui/material";
 import ChatIcon from "@mui/icons-material/Chat";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { useRouter } from "next/navigation";
+
+// ✅ Importaciones Críticas (las que faltaban)
 import { useGlobal } from "@/context/GlobalContext";
 import { apiFetch } from "@/libs/apiClient";
-import { formatDistanceToNow } from "date-fns"; // Opcional: para fechas amigables
-import { es } from "date-fns/locale"; // Opcional: español
-
-// Tipado robusto (idealmente mover a @/types)
-interface ChatPreview {
-  id: string;
-  name: string;
-  lastMessage: string;
-  timestamp?: number;
-  avatar?: string;
-  unreadCount?: number; // Preparado para futuro
-}
+import { connectWS, disconnectWS } from "@/libs/wsClient";
 
 export default function ChatList() {
   const { state, dispatch } = useGlobal();
   const router = useRouter();
-  const [chats, setChats] = useState<ChatPreview[]>([]);
-  const [loading, setLoading] = useState(true);
   
-  // Referencia para evitar actualizaciones en componente desmontado
+  // Estado local solo para carga inicial
+  const [loadingInitial, setLoadingInitial] = useState(false);
   const isMounted = useRef(true);
+  
+  // Ref para guardar el socket del lobby y no reconectarlo en cada render
+  const lobbySocketRef = useRef<WebSocket | null>(null);
 
+  // Leemos chats del Estado Global
+  const chats = state.chats || [];
+
+  // =========================================================
+  // 1. Carga Inicial HTTP (Tu lógica original)
+  // =========================================================
   useEffect(() => {
     isMounted.current = true;
 
     const loadChats = async () => {
-      // Si no hay ID de usuario, no intentamos cargar nada (evita llamadas 401)
-      if (!state.user?.id) return;
-      
+      // Si ya tenemos chats o no hay usuario, no hacemos fetch
+      if (chats.length > 0 || !state.user?.id) return;
+
       try {
-        setLoading(true);
-        
-        // Hacemos el fetch. apiFetch ya maneja cookies HttpOnly.
+        setLoadingInitial(true);
         const res = await apiFetch('/chat/user/me');
-        
-        // Normalización defensiva de datos
-        // Aceptamos: res (array directo), res.data (wrapper común), res.body (tu wrapper)
         const rawList = Array.isArray(res) ? res : (res.data || res.body || []);
 
         const formatted = rawList.map((c: any) => {
-            // Lógica de visualización de nombre (Prioridad: Nombre de Grupo > Nombre de Partner)
             let chatName = c.name;
             let avatarUrl = c.avatar;
 
-            // Si es chat privado (sin nombre explícito), buscar al "otro"
+            // Lógica para poner nombre si es chat 1 a 1
             if (!chatName && Array.isArray(c.participants)) {
                 const partner = c.participants.find(
                     (p: any) => p._id !== state.user?.id
@@ -83,7 +66,7 @@ export default function ChatList() {
             };
         });
 
-        // Ordenar por fecha (más reciente primero)
+        // Ordenar por más reciente
         formatted.sort((a: any, b: any) => {
             const timeA = new Date(a.timestamp).getTime();
             const timeB = new Date(b.timestamp).getTime();
@@ -91,24 +74,60 @@ export default function ChatList() {
         });
 
         if (isMounted.current) {
-            setChats(formatted);
+            dispatch({ type: 'SET_CHATS', payload: formatted });
         }
       } catch (e) {
         console.error("❌ Error cargando chats:", e);
       } finally {
-        if (isMounted.current) setLoading(false);
+        if (isMounted.current) setLoadingInitial(false);
       }
     };
 
     loadChats();
-
-    // Cleanup function
     return () => { isMounted.current = false; };
-  }, [state.user?.id]); // Solo recargar si cambia el ID del usuario
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.user?.id]); // Solo recarga si cambia el usuario
 
+
+  // =========================================================
+  // 2. 🔥 NUEVO: Conexión WS para Notificaciones (Lobby)
+  // =========================================================
+  useEffect(() => {
+    // Solo conectamos si hay usuario
+    if (!state.user?.id) return;
+
+    console.log("👂 ChatList: Conectando a WS Lobby para escuchar invitaciones...");
+
+    // Conectamos sin ID de sala (null)
+    lobbySocketRef.current = connectWS(null, (msg) => {
+        // 🎯 AQUI LLEGA LA MAGIA
+        if (msg.type === 'NEW_CHAT_CREATED') {
+            console.log("🎉 ¡Nuevo chat recibido por WS!", msg.chat);
+            
+            // Inyectamos el nuevo chat al inicio de la lista
+            dispatch({ 
+                type: 'ADD_CHAT', 
+                payload: msg.chat 
+            });
+        }
+    });
+
+    return () => {
+        // Al desmontar, desconectamos el socket del lobby
+        if (lobbySocketRef.current) {
+            disconnectWS();
+            lobbySocketRef.current = null;
+        }
+    };
+  }, [state.user?.id, dispatch]);
+
+
+  // =========================================================
+  // Lógica de UI (Manejadores)
+  // =========================================================
   const handleSelect = (id: string) => {
-    dispatch({ type: "SET_CHAT", payload: id });
-    router.push(`/chat/${id}`);
+    dispatch({ type: "SET_ACTIVE_CHAT", payload: id });
+    router.push(`/chat/${id}`); // Asegúrate que la ruta sea minúscula (/chat)
   };
 
   const handleOpenInvite = () => {
@@ -118,25 +137,8 @@ export default function ChatList() {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
       {/* --- Header --- */}
-      <Box
-        sx={{
-          height: 60,
-          bgcolor: "#202c33",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          px: 2,
-          borderBottom: "1px solid #2a3942",
-          flexShrink: 0 // Evita que el header se aplaste
-        }}
-      >
-        <Avatar 
-            src={state.user?.avatar} 
-            alt={state.user?.name}
-            sx={{ cursor: 'pointer' }}
-            // Podrías añadir onClick para ir al perfil propio
-        />
-        
+      <Box sx={{ height: 60, bgcolor: "#202c33", display: "flex", alignItems: "center", justifyContent: "space-between", px: 2, borderBottom: "1px solid #2a3942", flexShrink: 0 }}>
+        <Avatar src={state.user?.avatar} alt={state.user?.name} sx={{ cursor: 'pointer' }} />
         <Box>
           <Tooltip title="Nuevo chat">
             <IconButton onClick={handleOpenInvite}>
@@ -151,35 +153,21 @@ export default function ChatList() {
 
       {/* --- Lista de Chats --- */}
       <List sx={{ flex: 1, overflowY: "auto", p: 0 }}>
-        
-        {/* Estado de Carga */}
-        {loading && (
+        {loadingInitial && chats.length === 0 && (
           <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
             <CircularProgress size={30} sx={{ color: '#00a884' }} />
           </Box>
         )}
 
-        {/* Estado Vacío */}
-        {!loading && chats.length === 0 && (
+        {!loadingInitial && chats.length === 0 && (
           <Box sx={{ p: 4, textAlign: 'center', mt: 4 }}>
-            <Typography variant="body2" sx={{ color: "#8696a0", mb: 1 }}>
-              No tienes chats activos.
-            </Typography>
-            <Typography 
-                variant="subtitle2" 
-                sx={{ 
-                    color: '#00a884', 
-                    cursor: 'pointer', 
-                    '&:hover': { textDecoration: 'underline' } 
-                }}
-                onClick={handleOpenInvite}
-            >
+            <Typography variant="body2" sx={{ color: "#8696a0", mb: 1 }}>No tienes chats activos.</Typography>
+            <Typography variant="subtitle2" sx={{ color: '#00a884', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }} onClick={handleOpenInvite}>
                 Iniciar una conversación
             </Typography>
           </Box>
         )}
 
-        {/* Renderizado de Chats */}
         {chats.map((chat) => (
           <Box key={chat.id}>
             <ListItem disablePadding>
@@ -187,7 +175,7 @@ export default function ChatList() {
                 onClick={() => handleSelect(chat.id)}
                 selected={state.activeChatId === chat.id}
                 sx={{
-                  height: 72, // Altura estándar de WhatsApp
+                  height: 72,
                   px: 2,
                   "&.Mui-selected": { bgcolor: "#2a3942" },
                   "&.Mui-selected:hover": { bgcolor: "#2a3942" },
@@ -195,21 +183,14 @@ export default function ChatList() {
                 }}
               >
                 <ListItemAvatar>
-                  <Avatar 
-                    src={chat.avatar} 
-                    sx={{ width: 48, height: 48, mr: 1, bgcolor: '#00a884' }}
-                  >
+                  <Avatar src={chat.avatar} sx={{ width: 48, height: 48, mr: 1, bgcolor: '#00a884' }}>
                     {!chat.avatar && chat.name[0]?.toUpperCase()}
                   </Avatar>
                 </ListItemAvatar>
-                
                 <ListItemText
                   primary={
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                        <Typography variant="body1" sx={{ color: "#e9edef", fontWeight: 400 }}>
-                        {chat.name}
-                        </Typography>
-                        {/* Fecha del último mensaje (Opcional) */}
+                        <Typography variant="body1" sx={{ color: "#e9edef", fontWeight: 400 }}>{chat.name}</Typography>
                         {chat.timestamp && (
                              <Typography variant="caption" sx={{ color: "#8696a0", fontSize: '0.75rem' }}>
                                 {new Date(chat.timestamp).toLocaleDateString()}
@@ -218,16 +199,7 @@ export default function ChatList() {
                     </Box>
                   }
                   secondary={
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        color: "#8696a0",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        display: 'block'
-                      }}
-                    >
+                    <Typography variant="body2" sx={{ color: "#8696a0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: 'block' }}>
                       {chat.lastMessage}
                     </Typography>
                   }

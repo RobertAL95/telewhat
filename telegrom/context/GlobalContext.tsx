@@ -1,37 +1,51 @@
 'use client';
-import React, { createContext, useReducer, useContext, useMemo, useEffect } from 'react';
+import React, { createContext, useReducer, useContext, useMemo, useEffect, useCallback } from 'react';
 import { saveMessageLocally } from '@/libs/localChatStore';
 import { validateSession, logout as apiLogout, User } from '@/libs/auth';
 
-// --- Definición del Estado ---
+// --- Interfaces ---
+export interface ChatPreview {
+  id: string;
+  name: string;
+  lastMessage: string;
+  timestamp?: number;
+  avatar?: string;
+  unreadCount?: number;
+}
+
 interface GlobalState {
   user: User | null;
+  chats: ChatPreview[];
   activeChatId: string | null;
   messages: Record<string, any[]>;
   inviteModalOpen: boolean;
-  loading: boolean; // El "Semáforo"
+  loading: boolean;
+  error: string | null; // ✅ Agregado para manejar errores globales
 }
 
 // --- Acciones ---
 type Action =
   | { type: 'SET_USER'; payload: User | null }
-  | { type: 'SET_CHAT'; payload: string | null }
+  | { type: 'SET_CHATS'; payload: ChatPreview[] }
+  | { type: 'ADD_CHAT'; payload: ChatPreview }
+  | { type: 'SET_ACTIVE_CHAT'; payload: string | null }
   | { type: 'ADD_MESSAGE'; payload: { chatId: string; msg: any } }
   | { type: 'LOAD_MESSAGES'; payload: { chatId: string; msgs: any[] } }
   | { type: 'TOGGLE_INVITE_MODAL'; payload: boolean }
   | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SET_ERROR'; payload: string | null } // ✅ Nueva acción
   | { type: 'LOGOUT' };
 
 const initialState: GlobalState = {
   user: null,
+  chats: [],
   activeChatId: null,
   messages: {},
   inviteModalOpen: false,
-  loading: true, // 🔒 BLOQUEADO por defecto
+  loading: true,
+  error: null,
 };
 
-// --- Contexto ---
-// Extendemos el tipo para incluir funciones helper directas si se desea
 const GlobalContext = createContext<{
   state: GlobalState;
   dispatch: React.Dispatch<Action>;
@@ -46,20 +60,51 @@ const GlobalContext = createContext<{
 function reducer(state: GlobalState, action: Action): GlobalState {
   switch (action.type) {
     case 'SET_USER':
-      return { ...state, user: action.payload, loading: false };
+      return { ...state, user: action.payload, loading: false, error: null };
     
     case 'SET_LOADING':
       return { ...state, loading: action.payload };
 
-    case 'SET_CHAT':
+    case 'SET_ERROR':
+      return { ...state, error: action.payload, loading: false };
+
+    case 'SET_CHATS':
+      return { ...state, chats: action.payload };
+
+    case 'ADD_CHAT': {
+      const exists = state.chats.find(c => c.id === action.payload.id);
+      if (exists) return state;
+      return { ...state, chats: [action.payload, ...state.chats] };
+    }
+
+    case 'SET_ACTIVE_CHAT':
       return { ...state, activeChatId: action.payload };
 
     case 'ADD_MESSAGE': {
       const { chatId, msg } = action.payload;
       const currentMsgs = state.messages[chatId] || [];
-      const updated = [...currentMsgs, msg];
-      saveMessageLocally(chatId, msg); // Persistencia local de msgs
-      return { ...state, messages: { ...state.messages, [chatId]: updated } };
+      const updatedMsgs = [...currentMsgs, msg];
+      saveMessageLocally(chatId, msg);
+
+      // Actualizar lastMessage y reordenar
+      const updatedChats = state.chats.map(c => {
+        if (c.id === chatId) {
+            return { 
+                ...c, 
+                lastMessage: msg.text, 
+                timestamp: msg.timestamp 
+            };
+        }
+        return c;
+      });
+      
+      updatedChats.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+      return { 
+          ...state, 
+          messages: { ...state.messages, [chatId]: updatedMsgs },
+          chats: updatedChats 
+      };
     }
 
     case 'LOAD_MESSAGES':
@@ -72,8 +117,6 @@ function reducer(state: GlobalState, action: Action): GlobalState {
       return { ...state, inviteModalOpen: action.payload };
 
     case 'LOGOUT':
-      // Al hacer logout, limpiamos usuario y chat, pero NO ponemos loading en true
-      // para que la UI redirija inmediatamente al login.
       return { ...initialState, loading: false };
 
     default:
@@ -85,47 +128,63 @@ function reducer(state: GlobalState, action: Action): GlobalState {
 export const GlobalProvider = ({ children }: { children: React.ReactNode }) => {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // 1. Efecto de "Handshake" inicial
-  useEffect(() => {
-    let isMounted = true;
-
-    const initAuth = async () => {
-      // El estado inicial ya es loading: true, así que solo nos preocupamos por resolverlo
-      const user = await validateSession();
-
-      if (isMounted) {
-        if (user) {
-          console.log('✅ Sesión restaurada:', user.email);
-          dispatch({ type: 'SET_USER', payload: user });
-        } else {
-          console.log('ℹ️ Sin sesión activa');
-          // Importante: Decimos explícitamente que ya no estamos cargando
-          dispatch({ type: 'SET_LOADING', payload: false });
-        }
-      }
-    };
-
-    initAuth();
-
-    return () => { isMounted = false; };
+  // Función de Logout Helper
+  const logout = useCallback(async () => {
+    try {
+      await apiLogout();
+    } catch (error) {
+      console.error('Error al cerrar sesión', error);
+    } finally {
+      dispatch({ type: 'LOGOUT' });
+      // Opcional: window.location.href = '/auth';
+    }
   }, []);
 
-  // 2. Helper de Logout
-  const logout = async () => {
-    await apiLogout(); // Limpia cookie en backend
-    dispatch({ type: 'LOGOUT' }); // Limpia estado en frontend
-    // Opcional: window.location.href = '/auth'; si el router no lo maneja
-  };
+  // Lógica de Inicialización (Silencia errores 401)
+// Lógica de Inicialización (Silencia errores 401)
+const initAuth = useCallback(async () => {
+    try {
+      // Solo ponemos loading si no tenemos usuario aún
+      if (!state.user) dispatch({ type: 'SET_LOADING', payload: true });
+      
+      const user = await validateSession(); // ✅ Renombrado 'data' a 'user' para claridad
+      
+      // CORRECCIÓN: TypeScript dice que esto ya es el usuario, así que lo usamos directo.
+      if (user) {
+        dispatch({ type: 'SET_USER', payload: user });
+      } else {
+        // Si responde 200 pero viene vacío
+        dispatch({ type: 'SET_LOADING', payload: false });
+      }
 
-  const value = useMemo(() => ({ state, dispatch, logout }), [state]);
+    } catch (error: any) {
+      // 🛑 LÓGICA DE SILENCIO 401
+      const isAuthError = error.message === 'No session' || 
+                          error.message === 'Invalid session' ||
+                          error?.status === 401;
 
-  // 3. 🚧 EL GUARDIA DE SEGURIDAD (Loading UI) 🚧
-  // Si estamos cargando, la App NO existe. Solo existe el loader.
-  if (state.loading) {
+      if (isAuthError) {
+        console.log('👀 Visitante no autenticado (Estado normal)');
+        // Importante: Debemos quitar el loading aunque falle
+        dispatch({ type: 'SET_LOADING', payload: false });
+      } else {
+        console.error('❌ Error crítico de auth:', error);
+        dispatch({ type: 'SET_ERROR', payload: error.message || 'Error de conexión' });
+      }
+    }
+}, [state.user]);
+  // Efecto único al montar
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
+
+  const value = useMemo(() => ({ state, dispatch, logout }), [state, logout]);
+
+  // Pantalla de carga inicial (Full Screen)
+  if (state.loading && !state.user) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="flex flex-col items-center gap-4">
-          {/* Spinner Simple con Tailwind */}
           <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300 border-t-indigo-600"></div>
           <p className="text-sm font-medium text-gray-500 animate-pulse">Iniciando Flym...</p>
         </div>
@@ -133,11 +192,9 @@ export const GlobalProvider = ({ children }: { children: React.ReactNode }) => {
     );
   }
 
-  // 4. Si pasamos el guardia, renderizamos la App
   return <GlobalContext.Provider value={value}>{children}</GlobalContext.Provider>;
 };
 
-// --- Hook ---
 export const useGlobal = () => {
   const context = useContext(GlobalContext);
   if (!context) throw new Error('useGlobal debe usarse dentro de GlobalProvider');

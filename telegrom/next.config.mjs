@@ -1,4 +1,3 @@
-// next.config.mjs
 import bundleAnalyzer from '@next/bundle-analyzer';
 
 const withBundleAnalyzer = bundleAnalyzer({
@@ -6,7 +5,22 @@ const withBundleAnalyzer = bundleAnalyzer({
 });
 
 const nextConfig = {
-  reactStrictMode: true,
+  reactStrictMode: false, 
+  
+  async rewrites() {
+    return [
+      {
+        source: '/ws',
+        // ✅ Websockets al backend
+        destination: 'http://localhost:5001/ws', 
+      },
+      {
+        source: '/api/:path*',
+        // ✅ API calls al backend
+        destination: 'http://localhost:5001/api/:path*', 
+      },
+    ];
+  },
 };
 
 export default withBundleAnalyzer(nextConfig);

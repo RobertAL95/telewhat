@@ -73,5 +73,5 @@ export function useChatWS() {
         },
       });
     };
-  }, [activeChatId]);
+  }, [activeChatId, user, dispatch]);
 }

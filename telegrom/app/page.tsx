@@ -1,9 +1,44 @@
 'use client';
-import { Box, Button, Typography } from '@mui/material';
+import { useEffect } from 'react';
+import { Box, Button, Typography, CircularProgress } from '@mui/material';
 import { useRouter } from 'next/navigation';
+import { useGlobal } from '@/context/GlobalContext'; // ✅ Importamos el Estado Global
 
 export default function Home() {
   const router = useRouter();
+  const { state } = useGlobal(); 
+  const { user, loading } = state;
+
+  useEffect(() => {
+    // 🛡️ LÓGICA DE BLINDAJE:
+    // Si ya dejó de cargar y el usuario existe, nos vamos directo al chat.
+    if (!loading && user) {
+      router.replace('/chat'); // Usamos 'replace' para no dejar historial del Home
+    }
+  }, [user, loading, router]);
+
+  // 🔄 Mientras verificamos la sesión, mostramos un Spinner elegante
+  if (loading) {
+    return (
+      <Box 
+        sx={{ 
+          height: '100vh', 
+          display: 'flex', 
+          flexDirection: 'column',
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          bgcolor: 'background.default' 
+        }}
+      >
+        <CircularProgress color="primary" size={60} thickness={4} />
+        <Typography sx={{ mt: 2, color: 'text.secondary', fontSize: '0.9rem' }}>
+           Verificando sesión...
+        </Typography>
+      </Box>
+    );
+  }
+
+  // Si NO hay usuario y NO está cargando, mostramos la Landing Page normal
   return (
     <Box
       sx={{
