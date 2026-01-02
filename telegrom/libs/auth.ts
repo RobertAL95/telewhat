@@ -52,35 +52,50 @@ export async function logout() {
  * Si el navegador envía la cookie correcta, el backend responde con el User.
  * Si no (Error 401 / "No session"), capturamos el error y retornamos null.
  */
-export async function validateSession(): Promise<User | null> {
+import { API_BASE_URL } from './apiClient'; // Asegúrate de importar la URL base
+
+// ... (login, register, logout se quedan igual) ...
+
+/**
+ * 🟡 Validar Sesión (VERIFICACIÓN SILENCIOSA)
+ * Implementa tu lógica: Verifica cookies ANTES de decidir si es error o no.
+ * NO usa apiFetch para evitar que explote la pantalla roja en caso de ser invitado.
+ */
+export async function validateSession() {
   try {
-    const res = await apiFetch('/auth/me');
-    
-    // Soportamos estructuras { user: ... } o directo el objeto user
-    const user = res.user || res.data?.user || res;
-    
-    // Verificamos que tenga ID para considerarlo válido
-    if (user && (user.id || user._id)) {
-      return user;
-    }
-    return null;
+    // 1. Construimos la URL manualmente
+    const url = `${API_BASE_URL}/auth/me`;
 
-  } catch (error: any) {
-    // 🔥 CORRECCIÓN CRÍTICA:
-    // Si el error es "No session", "Invalid session" o código 401,
-    // NO lanzamos excepción. Retornamos null silenciosamente.
-    const isExpectedAuthError = 
-        error.message === 'No session' || 
-        error.message === 'Invalid session' || 
-        error.status === 401;
+    // 2. Usamos fetch nativo para tener control total
+    const res = await fetch(url, {
+      method: 'GET',
+      credentials: 'include', // 🔥 IMPORTANTE: Envía la cookie si existe
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    });
 
-    if (isExpectedAuthError) {
-        return null; // Es un visitante, comportamiento normal.
+    // 3. APLICAMOS TU LÓGICA:
+    // Si el servidor dice "401 Unauthorized" (No hay cookie o expiró),
+    // NO es un error del sistema. Es simplemente un usuario nuevo.
+    if (res.status === 401 || res.status === 403) {
+      return null; // Retornamos null (Invitado) pacíficamente.
     }
 
-    // Si es otro error (ej: servidor caído 500), lo logueamos pero
-    // devolvemos null para no romper la UI de inicio.
-    console.error('⚠️ Error inesperado validando sesión:', error);
+    // 4. Si falla por otra cosa (ej: Servidor caído 500), ahí sí lanzamos error
+    if (!res.ok) {
+      throw new Error(`Error del servidor: ${res.status}`);
+    }
+
+    // 5. Si todo sale bien (Status 200), hay usuario
+    const data = await res.json();
+    // Ajustamos por si tu backend devuelve { user: ... } o directo el user
+    return data.user || data;
+
+  } catch (error) {
+    // Si ni siquiera hay conexión (internet caído), retornamos null para no bloquear la app
+    console.warn('⚠️ Verificación de sesión fallida (Modo Invitado activo):', error);
     return null;
   }
 }

@@ -20,7 +20,7 @@ interface GlobalState {
   messages: Record<string, any[]>;
   inviteModalOpen: boolean;
   loading: boolean;
-  error: string | null; // ✅ Agregado para manejar errores globales
+  error: string | null;
 }
 
 // --- Acciones ---
@@ -33,7 +33,7 @@ type Action =
   | { type: 'LOAD_MESSAGES'; payload: { chatId: string; msgs: any[] } }
   | { type: 'TOGGLE_INVITE_MODAL'; payload: boolean }
   | { type: 'SET_LOADING'; payload: boolean }
-  | { type: 'SET_ERROR'; payload: string | null } // ✅ Nueva acción
+  | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'LOGOUT' };
 
 const initialState: GlobalState = {
@@ -42,7 +42,7 @@ const initialState: GlobalState = {
   activeChatId: null,
   messages: {},
   inviteModalOpen: false,
-  loading: true,
+  loading: true, // Empieza cargando para evitar flash de contenido
   error: null,
 };
 
@@ -60,6 +60,7 @@ const GlobalContext = createContext<{
 function reducer(state: GlobalState, action: Action): GlobalState {
   switch (action.type) {
     case 'SET_USER':
+      // Al setear usuario, automáticamente dejamos de cargar
       return { ...state, user: action.payload, loading: false, error: null };
     
     case 'SET_LOADING':
@@ -86,7 +87,6 @@ function reducer(state: GlobalState, action: Action): GlobalState {
       const updatedMsgs = [...currentMsgs, msg];
       saveMessageLocally(chatId, msg);
 
-      // Actualizar lastMessage y reordenar
       const updatedChats = state.chats.map(c => {
         if (c.id === chatId) {
             return { 
@@ -136,43 +136,22 @@ export const GlobalProvider = ({ children }: { children: React.ReactNode }) => {
       console.error('Error al cerrar sesión', error);
     } finally {
       dispatch({ type: 'LOGOUT' });
-      // Opcional: window.location.href = '/auth';
     }
   }, []);
 
-  // Lógica de Inicialización (Silencia errores 401)
-// Lógica de Inicialización (Silencia errores 401)
-const initAuth = useCallback(async () => {
-    try {
-      // Solo ponemos loading si no tenemos usuario aún
-      if (!state.user) dispatch({ type: 'SET_LOADING', payload: true });
-      
-      const user = await validateSession(); // ✅ Renombrado 'data' a 'user' para claridad
-      
-      // CORRECCIÓN: TypeScript dice que esto ya es el usuario, así que lo usamos directo.
-      if (user) {
-        dispatch({ type: 'SET_USER', payload: user });
-      } else {
-        // Si responde 200 pero viene vacío
-        dispatch({ type: 'SET_LOADING', payload: false });
-      }
+  // 🟢 Lógica de Inicialización (Simplificada)
+  const initAuth = useCallback(async () => {
+    // Ya no necesitamos try/catch aquí porque validateSession nunca falla
+    const user = await validateSession(); 
 
-    } catch (error: any) {
-      // 🛑 LÓGICA DE SILENCIO 401
-      const isAuthError = error.message === 'No session' || 
-                          error.message === 'Invalid session' ||
-                          error?.status === 401;
-
-      if (isAuthError) {
-        console.log('👀 Visitante no autenticado (Estado normal)');
-        // Importante: Debemos quitar el loading aunque falle
-        dispatch({ type: 'SET_LOADING', payload: false });
-      } else {
-        console.error('❌ Error crítico de auth:', error);
-        dispatch({ type: 'SET_ERROR', payload: error.message || 'Error de conexión' });
-      }
+    if (user) {
+      dispatch({ type: 'SET_USER', payload: user });
+    } else {
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
-}, [state.user]);
+  }, []); // Dependencias vacías
+// Dependencias vacías: solo queremos definir esto una vez
+
   // Efecto único al montar
   useEffect(() => {
     initAuth();
@@ -181,7 +160,8 @@ const initAuth = useCallback(async () => {
   const value = useMemo(() => ({ state, dispatch, logout }), [state, logout]);
 
   // Pantalla de carga inicial (Full Screen)
-  if (state.loading && !state.user) {
+  // Se muestra mientras loading sea true Y no tengamos usuario
+  if (state.loading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="flex flex-col items-center gap-4">

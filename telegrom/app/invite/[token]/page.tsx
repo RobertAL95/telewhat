@@ -8,8 +8,10 @@ import {
   Typography, 
   Paper, 
   TextField, 
-  Alert 
+  Alert,
+  Avatar
 } from '@mui/material';
+import PersonIcon from '@mui/icons-material/Person';
 import { useGlobal } from '@/context/GlobalContext';
 import { apiFetch } from '@/libs/apiClient';
 
@@ -20,6 +22,7 @@ export default function InvitePage() {
 
   const [loading, setLoading] = useState(true);
   const [isValid, setIsValid] = useState(false);
+  const [inviteInfo, setInviteInfo] = useState<any>(null); // Guardamos info del invitador
   const [joining, setJoining] = useState(false);
   const [guestName, setGuestName] = useState('');
   const [error, setError] = useState('');
@@ -33,15 +36,23 @@ export default function InvitePage() {
 
     const validate = async () => {
       try {
+        console.log('🔍 Validando token:', decodedToken);
         const res = await apiFetch(`/invite/validate/${encodeURIComponent(decodedToken)}`);
-        // Aceptamos true directo o un objeto { valid: true }
-        if (res === true || res.valid || res === 'true') {
+        
+        console.log('✅ Respuesta validación:', res);
+
+        // Aceptamos varias estructuras posibles para robustez
+        const data = res.body || res;
+
+        if (data === true || data.valid === true) {
           setIsValid(true);
+          setInviteInfo(data); // Guardamos nombre del invitador/grupo
         } else {
+          console.warn('❌ Token inválido según backend:', data);
           setError('El enlace de invitación ha expirado o no es válido.');
         }
       } catch (err) {
-        console.error(err);
+        console.error('❌ Error API validar:', err);
         setError('Error al validar la invitación.');
       } finally {
         setLoading(false);
@@ -51,8 +62,7 @@ export default function InvitePage() {
     validate();
   }, [decodedToken]);
 
-  // 2. Aceptar invitación (Lógica corregida)
-// 2. Aceptar invitación (CORREGIDO PARA SINCRONIZACIÓN GLOBAL)
+  // 2. Aceptar invitación
   const handleJoin = async () => {
     if (!guestName.trim()) {
       setError('Por favor, ingresa un nombre para unirte.');
@@ -71,13 +81,8 @@ export default function InvitePage() {
         }),
       });
 
-      // --- LÓGICA CORREGIDA ---
       const data = res.body || res;
-      
-      // Datos del usuario (Guest)
       const userData = data.user;
-      
-      // Datos del Chat (Que ahora vienen bonitos del backend)
       const chatData = data.chat; 
 
       if (!chatData || !userData) {
@@ -96,14 +101,12 @@ export default function InvitePage() {
         },
       });
 
-      // 2. 🔥 VINCULACIÓN VISUAL EXACTA
-      // Usamos los datos reales del backend. 
-      // El Guest verá el nombre del Host, no "Nuevo Grupo".
+      // 2. Agregar el chat
       dispatch({
         type: 'ADD_CHAT',
         payload: {
             id: chatData.id,
-            name: chatData.name, // "Juan Perez" (Nombre del Host)
+            name: chatData.name, 
             lastMessage: chatData.lastMessage,
             timestamp: chatData.timestamp,
             avatar: chatData.avatar
@@ -153,17 +156,36 @@ export default function InvitePage() {
         }}
       >
         <Typography variant="h5" fontWeight="bold" gutterBottom sx={{ color: '#00a884' }}>
-          Invitación a Flym
+          Flym Invitación
         </Typography>
 
         {!isValid ? (
           <Alert severity="error" sx={{ mt: 2, bgcolor: '#3b4252', color: '#fff' }}>
-            {error || 'Invitación no válida.'}
+            {error || 'El enlace de invitación ha expirado o no es válido.'}
           </Alert>
         ) : (
           <>
-            <Typography variant="body1" sx={{ mb: 3, color: '#8696a0' }}>
-              Te han invitado a un chat seguro. Elige un nombre para unirte.
+            <Box sx={{ my: 3, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <Avatar 
+                    src={inviteInfo?.inviterAvatar} 
+                    sx={{ width: 64, height: 64, mb: 2, bgcolor: '#00a884' }}
+                >
+                    <PersonIcon fontSize="large" />
+                </Avatar>
+                
+                <Typography variant="h6">
+                  {inviteInfo?.inviterName || 'Alguien'} te invita a chatear
+                </Typography>
+                
+                {inviteInfo?.chatName && inviteInfo?.chatName !== 'Chat Directo' && (
+                    <Typography variant="body2" color="#8696a0" sx={{ mt: 0.5 }}>
+                        Grupo: {inviteInfo.chatName}
+                    </Typography>
+                )}
+            </Box>
+
+            <Typography variant="body2" sx={{ mb: 3, color: '#8696a0' }}>
+              Elige un nombre para unirte a la conversación.
             </Typography>
 
             <TextField 
@@ -187,7 +209,9 @@ export default function InvitePage() {
             />
 
             {error && (
-              <Alert severity="error" sx={{ mb: 2, textAlign: 'left' }}>{error}</Alert>
+              <Alert severity="error" sx={{ mb: 2, textAlign: 'left', bgcolor: 'rgba(239, 83, 80, 0.1)', color: '#ef5350' }}>
+                {error}
+              </Alert>
             )}
 
             <Button

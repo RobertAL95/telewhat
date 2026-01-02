@@ -44,7 +44,7 @@ export default function LoginForm() {
 
       // 4. Redirigir al chat
       console.log('✅ Login exitoso, redirigiendo...');
-      router.push('/Chat'); // Asegúrate que tu ruta coincida con la carpeta (ej. /chat o /Chat)
+      router.push('/chat'); // Asegúrate que tu ruta coincida con la carpeta (ej. /chat o /Chat)
 
     } catch (err: any) {
       console.error('❌ Error login:', err);

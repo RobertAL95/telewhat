@@ -1,8 +1,7 @@
 import { getDeviceHeader } from '../utils/deviceDetector';
 
 // Aseguramos que no haya barra al final para evitar dobles slashes
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || 'http://localhost:5001';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || 'http://localhost:5001';
 
 export async function apiFetch(path: string, options: RequestInit = {}) {
   // 1. Obtener header de dispositivo (importante para tu lógica de sesión larga/corta)

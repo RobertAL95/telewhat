@@ -2,13 +2,15 @@
 import { useEffect, useState, useRef } from "react";
 import {
   Box, Avatar, IconButton, List, ListItem, ListItemButton, ListItemAvatar, ListItemText,
-  Typography, Divider, Tooltip, CircularProgress
+  Typography, Divider, Tooltip, CircularProgress, Badge
 } from "@mui/material";
 import ChatIcon from "@mui/icons-material/Chat";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
+import PersonIcon from '@mui/icons-material/Person';
+import GroupIcon from '@mui/icons-material/Group';
 import { useRouter } from "next/navigation";
 
-// ✅ Importaciones Críticas (las que faltaban)
+// ✅ Importaciones Críticas
 import { useGlobal } from "@/context/GlobalContext";
 import { apiFetch } from "@/libs/apiClient";
 import { connectWS, disconnectWS } from "@/libs/wsClient";
@@ -21,14 +23,14 @@ export default function ChatList() {
   const [loadingInitial, setLoadingInitial] = useState(false);
   const isMounted = useRef(true);
   
-  // Ref para guardar el socket del lobby y no reconectarlo en cada render
+  // Ref para guardar el socket del lobby
   const lobbySocketRef = useRef<WebSocket | null>(null);
 
   // Leemos chats del Estado Global
   const chats = state.chats || [];
 
   // =========================================================
-  // 1. Carga Inicial HTTP (Tu lógica original)
+  // 1. Carga Inicial HTTP
   // =========================================================
   useEffect(() => {
     isMounted.current = true;
@@ -62,7 +64,8 @@ export default function ChatList() {
                 name: chatName || "Usuario Desconocido",
                 lastMessage: c.lastMessage?.text || "Sin mensajes",
                 timestamp: c.lastMessage?.createdAt || Date.now(),
-                avatar: avatarUrl
+                avatar: avatarUrl,
+                isGuestChat: c.isGuestChat || false // Para mostrar icono diferente si quieres
             };
         });
 
@@ -86,34 +89,38 @@ export default function ChatList() {
     loadChats();
     return () => { isMounted.current = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.user?.id]); // Solo recarga si cambia el usuario
+  }, [state.user?.id]); 
 
 
   // =========================================================
-  // 2. 🔥 NUEVO: Conexión WS para Notificaciones (Lobby)
+  // 2. 🔥 CORRECCIÓN CLAVE: Conexión WS para Notificaciones
   // =========================================================
   useEffect(() => {
-    // Solo conectamos si hay usuario
+    // Solo conectamos si hay usuario autenticado
     if (!state.user?.id) return;
 
     console.log("👂 ChatList: Conectando a WS Lobby para escuchar invitaciones...");
 
-    // Conectamos sin ID de sala (null)
+    // Conectamos sin ID de sala (null) para escuchar eventos globales
+    // Guardamos la referencia para limpieza
     lobbySocketRef.current = connectWS(null, (msg) => {
-        // 🎯 AQUI LLEGA LA MAGIA
-        if (msg.type === 'NEW_CHAT_CREATED') {
-            console.log("🎉 ¡Nuevo chat recibido por WS!", msg.chat);
+        
+        // 🎯 LÓGICA CORREGIDA PARA MATCHEAR CON TU BACKEND ACTUAL
+        if (msg.type === 'InviteAccepted') {
+            console.log("🎉 ¡Invitación aceptada recibida!", msg);
             
-            // Inyectamos el nuevo chat al inicio de la lista
-            dispatch({ 
-                type: 'ADD_CHAT', 
-                payload: msg.chat 
-            });
+            // Usamos 'fullChat' que es lo que envía tu backend ahora
+            if (msg.fullChat) {
+                dispatch({ 
+                    type: 'ADD_CHAT', 
+                    payload: msg.fullChat 
+                });
+            }
         }
     });
 
     return () => {
-        // Al desmontar, desconectamos el socket del lobby
+        // Al desmontar (ej: logout), desconectamos
         if (lobbySocketRef.current) {
             disconnectWS();
             lobbySocketRef.current = null;
@@ -127,7 +134,7 @@ export default function ChatList() {
   // =========================================================
   const handleSelect = (id: string) => {
     dispatch({ type: "SET_ACTIVE_CHAT", payload: id });
-    router.push(`/chat/${id}`); // Asegúrate que la ruta sea minúscula (/chat)
+    router.push(`/chat/${id}`); 
   };
 
   const handleOpenInvite = () => {
@@ -183,9 +190,18 @@ export default function ChatList() {
                 }}
               >
                 <ListItemAvatar>
-                  <Avatar src={chat.avatar} sx={{ width: 48, height: 48, mr: 1, bgcolor: '#00a884' }}>
-                    {!chat.avatar && chat.name[0]?.toUpperCase()}
-                  </Avatar>
+                  <Badge 
+                    overlap="circular"
+                    anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                    variant="dot"
+                    color="success"
+                    invisible={!chat.isGuestChat} // Punto verde si es chat de invitado
+                  >
+                    <Avatar src={chat.avatar} sx={{ width: 48, height: 48, mr: 1, bgcolor: chat.isGuestChat ? '#00a884' : '#53bdeb' }}>
+                        {chat.isGuestChat ? <PersonIcon /> : (chat.avatar ? null : <GroupIcon />)}
+                        {!chat.avatar && !chat.isGuestChat && chat.name[0]?.toUpperCase()}
+                    </Avatar>
+                  </Badge>
                 </ListItemAvatar>
                 <ListItemText
                   primary={
