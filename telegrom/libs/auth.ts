@@ -29,9 +29,13 @@ export async function register(userData: { name: string; email: string; password
     method: 'POST',
     body: JSON.stringify(userData),
   });
-  return res.user || res.data?.user || res;
-}
 
+  // 🔍 CORRECCIÓN AQUÍ:
+  // La respuesta exitosa suele venir en 'res.body'.
+  // Si res.body existe, lo devolvemos (ahí adentro está { user: ... }).
+  // Si no, devolvemos res por si acaso.
+  return res.body || res;
+}
 /**
  * 🟢 Cerrar Sesión
  * Backend mata la cookie.

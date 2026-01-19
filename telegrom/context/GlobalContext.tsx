@@ -1,16 +1,26 @@
 'use client';
 import React, { createContext, useReducer, useContext, useMemo, useEffect, useCallback } from 'react';
 import { saveMessageLocally } from '@/libs/localChatStore';
-import { validateSession, logout as apiLogout, User } from '@/libs/auth';
+import { validateSession, logout as apiLogout } from '@/libs/auth';
 
 // --- Interfaces ---
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  friendId?: string; // Corregido para ChatList
+  status?: string;
+}
+
 export interface ChatPreview {
   id: string;
   name: string;
   lastMessage: string;
   timestamp?: number;
   avatar?: string;
-  unreadCount?: number;
+  unreadCount?: number; 
+  isGuestChat?: boolean; 
 }
 
 interface GlobalState {
@@ -23,7 +33,6 @@ interface GlobalState {
   error: string | null;
 }
 
-// --- Acciones ---
 type Action =
   | { type: 'SET_USER'; payload: User | null }
   | { type: 'SET_CHATS'; payload: ChatPreview[] }
@@ -42,7 +51,7 @@ const initialState: GlobalState = {
   activeChatId: null,
   messages: {},
   inviteModalOpen: false,
-  loading: true, // Empieza cargando para evitar flash de contenido
+  loading: true, 
   error: null,
 };
 
@@ -50,49 +59,54 @@ const GlobalContext = createContext<{
   state: GlobalState;
   dispatch: React.Dispatch<Action>;
   logout: () => Promise<void>;
-}>({ 
-  state: initialState, 
-  dispatch: () => {}, 
-  logout: async () => {} 
-});
+}>({ state: initialState, dispatch: () => {}, logout: async () => {} });
 
-// --- Reducer ---
 function reducer(state: GlobalState, action: Action): GlobalState {
   switch (action.type) {
     case 'SET_USER':
-      // Al setear usuario, automáticamente dejamos de cargar
       return { ...state, user: action.payload, loading: false, error: null };
-    
     case 'SET_LOADING':
       return { ...state, loading: action.payload };
-
     case 'SET_ERROR':
       return { ...state, error: action.payload, loading: false };
-
     case 'SET_CHATS':
       return { ...state, chats: action.payload };
-
     case 'ADD_CHAT': {
       const exists = state.chats.find(c => c.id === action.payload.id);
       if (exists) return state;
       return { ...state, chats: [action.payload, ...state.chats] };
     }
-
+    
     case 'SET_ACTIVE_CHAT':
-      return { ...state, activeChatId: action.payload };
+      // Al abrir un chat, reseteamos su contador de no leídos
+      const chatsCleaned = state.chats.map(c => 
+          c.id === action.payload ? { ...c, unreadCount: 0 } : c
+      );
+      return { ...state, activeChatId: action.payload, chats: chatsCleaned };
 
     case 'ADD_MESSAGE': {
       const { chatId, msg } = action.payload;
       const currentMsgs = state.messages[chatId] || [];
+      
+      // Evitar duplicados
+      if (currentMsgs.some(m => m.timestamp === msg.timestamp && m.text === msg.text)) {
+          return state;
+      }
+
       const updatedMsgs = [...currentMsgs, msg];
       saveMessageLocally(chatId, msg);
 
+      // 🔥 LÓGICA DE UNREAD COUNT CORREGIDA
       const updatedChats = state.chats.map(c => {
         if (c.id === chatId) {
+            // Si el mensaje NO es mío y NO estoy viendo ese chat -> +1 Unread
+            const shouldIncrement = !msg.isSelf && state.activeChatId !== chatId;
+            
             return { 
                 ...c, 
                 lastMessage: msg.text, 
-                timestamp: msg.timestamp 
+                timestamp: msg.timestamp,
+                unreadCount: shouldIncrement ? (c.unreadCount || 0) + 1 : c.unreadCount
             };
         }
         return c;
@@ -112,62 +126,37 @@ function reducer(state: GlobalState, action: Action): GlobalState {
         ...state,
         messages: { ...state.messages, [action.payload.chatId]: action.payload.msgs },
       };
-
     case 'TOGGLE_INVITE_MODAL':
       return { ...state, inviteModalOpen: action.payload };
-
     case 'LOGOUT':
       return { ...initialState, loading: false };
-
     default:
       return state;
   }
 }
 
-// --- Provider ---
 export const GlobalProvider = ({ children }: { children: React.ReactNode }) => {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // Función de Logout Helper
   const logout = useCallback(async () => {
-    try {
-      await apiLogout();
-    } catch (error) {
-      console.error('Error al cerrar sesión', error);
-    } finally {
-      dispatch({ type: 'LOGOUT' });
-    }
+    try { await apiLogout(); } catch (error) { console.error(error); } 
+    finally { dispatch({ type: 'LOGOUT' }); }
   }, []);
 
-  // 🟢 Lógica de Inicialización (Simplificada)
   const initAuth = useCallback(async () => {
-    // Ya no necesitamos try/catch aquí porque validateSession nunca falla
-    const user = await validateSession(); 
+    const userSession = await validateSession(); 
+    if (userSession) dispatch({ type: 'SET_USER', payload: userSession as User });
+    else dispatch({ type: 'SET_LOADING', payload: false });
+  }, []); 
 
-    if (user) {
-      dispatch({ type: 'SET_USER', payload: user });
-    } else {
-      dispatch({ type: 'SET_LOADING', payload: false });
-    }
-  }, []); // Dependencias vacías
-// Dependencias vacías: solo queremos definir esto una vez
-
-  // Efecto único al montar
-  useEffect(() => {
-    initAuth();
-  }, [initAuth]);
+  useEffect(() => { initAuth(); }, [initAuth]);
 
   const value = useMemo(() => ({ state, dispatch, logout }), [state, logout]);
 
-  // Pantalla de carga inicial (Full Screen)
-  // Se muestra mientras loading sea true Y no tengamos usuario
   if (state.loading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300 border-t-indigo-600"></div>
-          <p className="text-sm font-medium text-gray-500 animate-pulse">Iniciando Flym...</p>
-        </div>
+        <p className="text-sm font-medium text-gray-500 animate-pulse">Cargando Flym...</p>
       </div>
     );
   }

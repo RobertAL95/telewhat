@@ -21,7 +21,7 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
+const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
@@ -29,16 +29,19 @@ export default function RegisterForm({ onSuccess }: RegisterFormProps) {
 
     try {
       const res = await register({ name, email, password });
+      
+      console.log("📡 Respuesta Registro:", res); // <--- DEBUG VITAL
 
-      if (!res.user) {
-        throw new Error(res.message || 'Error al registrar usuario');
+      // Ahora 'res' debería ser { user: {...} } gracias al fix en libs/auth
+      if (!res || !res.user) {
+        // Si el backend mandó un mensaje de error, úsalo
+        throw new Error(res?.message || res?.error || 'Error al registrar usuario (respuesta inválida)');
       }
 
       setSuccessMsg('¡Cuenta creada! Redirigiendo al login...');
       
-      // Esperar brevemente para que el usuario lea el mensaje
       setTimeout(() => {
-        onSuccess(); // Cambiar tab a login
+        onSuccess(); 
       }, 1500);
 
     } catch (err: any) {

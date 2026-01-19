@@ -8,41 +8,51 @@ import {
   ListItem,
   Typography,
   Avatar,
+  CircularProgress, // 👈 Importado para el loading
+  Paper
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import { useGlobal } from '@/context/GlobalContext';
-import { sendMessage } from '@/libs/wsClient'; // Usamos wsClient.ts
+import { sendMessage } from '@/libs/wsClient'; 
 import { useChatWS } from '@/hooks/useChatWS';
 
 interface ChatWindowProps {
-    roomId?: string; // Opcional, ya que lo tomamos del contexto global generalmente
+    roomId?: string; 
 }
 
 export default function ChatWindow({ roomId }: ChatWindowProps) {
   const { state, dispatch } = useGlobal();
+  
+  // Determinamos el ID activo
   const activeId = roomId || state.activeChatId;
+  
+  // Buscamos los metadatos del chat (Nombre, Avatar, etc.)
+  // Esto es necesario para los guardianes de sincronización
+  const currentChat = state.chats.find((c: any) => (c.id === activeId) || (c._id === activeId));
+
   const messages = activeId ? state.messages[activeId] || [] : [];
   
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Hook de WebSocket: Se encarga de la conexión y recepción de mensajes
+  // Hook de WebSocket (Mantiene la conexión viva)
   useChatWS();
 
-  // Scroll al fondo al recibir mensajes
+  // Scroll al fondo
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+// src/components/Chat/ChatWindow.tsx
+
   const handleSend = () => {
     if (!activeId || !input.trim()) return;
     
-    // 1. Enviar por WS
+    // 1. Enviar por WS (Esto viaja al servidor y vuelve como un boomerang)
     sendMessage(input.trim()); 
 
-    // 2. Optimistic UI: Agregar mensaje localmente
-    // (Opcional: puedes esperar al ACK del servidor si prefieres)
-    dispatch({
+    // 2. ❌ ELIMINAR O COMENTAR ESTO (Causante del duplicado)
+    /* dispatch({
       type: 'ADD_MESSAGE',
       payload: {
         chatId: activeId,
@@ -50,15 +60,56 @@ export default function ChatWindow({ roomId }: ChatWindowProps) {
           from: state.user?.id,
           text: input.trim(),
           timestamp: Date.now(),
-          isSelf: true // Flag útil para renderizado
+          isSelf: true 
         }
       }
     });
+    */
 
+    // Solo limpiamos el input
     setInput('');
   };
+  // =====================================================================
+  // 🛡️ GUARDIANES DE ESTADO (State Guards)
+  // =====================================================================
 
-  if (!activeId) return null; // O mostrar un placeholder
+  // GUARDIA 1: Identidad (Evita crash por user null)
+  if (!state.user) {
+    return (
+      <Box sx={{ display: 'flex', height: '100%', justifyContent: 'center', alignItems: 'center', bgcolor: '#0b141a' }}>
+        <CircularProgress sx={{ color: '#00a884' }} />
+        <Typography sx={{ ml: 2, color: '#8696a0' }}>Cargando identidad...</Typography>
+      </Box>
+    );
+  }
+
+  // GUARDIA 2: Sincronización (Tenemos ID en URL, pero el chat no está en la lista aún)
+  if (activeId && !currentChat) {
+     return (
+      <Box sx={{ display: 'flex', height: '100%', justifyContent: 'center', alignItems: 'center', bgcolor: '#0b141a', flexDirection: 'column' }}>
+        <CircularProgress sx={{ color: '#00a884' }} />
+        <Typography sx={{ mt: 2, color: '#8696a0' }}>Sincronizando chat...</Typography>
+      </Box>
+    );
+  }
+
+  // GUARDIA 3: Estado Neutro / Lobby (No hay ID seleccionado)
+  if (!activeId) {
+    return (
+      <Box sx={{ display: 'flex', height: '100%', justifyContent: 'center', alignItems: 'center', bgcolor: '#222e35', borderBottom: '6px solid #00a884' }}>
+        <Box sx={{ textAlign: 'center', p: 4 }}>
+            <Typography variant="h4" color="#e9edef" fontWeight="light">Flym Web</Typography>
+            <Typography variant="body1" color="#8696a0" sx={{ mt: 2 }}>
+                Selecciona un chat para comenzar a enviar mensajes.
+            </Typography>
+        </Box>
+      </Box>
+    );
+  }
+
+  // =====================================================================
+  // 🎨 RENDERIZADO PRINCIPAL (Solo si pasamos los guardianes)
+  // =====================================================================
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: '#0b141a' }}>
@@ -73,15 +124,23 @@ export default function ChatWindow({ roomId }: ChatWindowProps) {
           borderBottom: '1px solid #2a3942',
         }}
       >
-        <Avatar sx={{ mr: 2, bgcolor: '#00a884' }}>?</Avatar>
-        <Typography variant="body1" sx={{ color: '#e9edef' }}>
-           Chat Activo
-        </Typography>
+        <Avatar src={currentChat?.avatar} sx={{ mr: 2, bgcolor: '#00a884' }}>
+            {/* Fallback si no hay avatar */}
+            {currentChat?.name ? currentChat.name[0].toUpperCase() : '?'}
+        </Avatar>
+        <Box>
+            <Typography variant="body1" sx={{ color: '#e9edef', fontWeight: 'bold' }}>
+            {currentChat?.name || 'Chat Activo'}
+            </Typography>
+            <Typography variant="caption" sx={{ color: '#8696a0' }}>
+                {currentChat?.isGuestChat ? 'Invitado temporal' : 'En línea'}
+            </Typography>
+        </Box>
       </Box>
 
       {/* Lista de Mensajes */}
-      <List sx={{ flex: 1, overflowY: 'auto', p: 2, backgroundImage: 'url(/images/chat-bg.png)' }}>
-        {messages.map((m, i) => {
+      <List sx={{ flex: 1, overflowY: 'auto', p: 2, backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")', backgroundRepeat: 'repeat', opacity: 0.95 }}>
+        {messages.map((m: any, i: number) => {
           const isSelf = m.from === state.user?.id || m.isSelf;
           const isSystem = m.from === 'system';
 
@@ -107,7 +166,9 @@ export default function ChatWindow({ roomId }: ChatWindowProps) {
                   boxShadow: 1
                 }}
               >
-                {m.text}
+                <Typography variant="body1" component="span" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {m.text}
+                </Typography>
                 <Typography variant="caption" display="block" textAlign="right" sx={{ mt: 0.5, opacity: 0.6, fontSize: '0.7rem' }}>
                     {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Typography>
@@ -149,9 +210,13 @@ export default function ChatWindow({ roomId }: ChatWindowProps) {
         <IconButton 
             onClick={handleSend}
             sx={{ 
-                color: '#00a884',
-                bgcolor: input.trim() ? '#2a3942' : 'transparent',
-                '&:hover': { bgcolor: '#2a3942' } 
+                color: '#8696a0', // Color gris por defecto
+                // Si hay texto, cambia el fondo y el icono a blanco/verde
+                ...(input.trim() && {
+                    color: '#fff',
+                    bgcolor: '#00a884',
+                    '&:hover': { bgcolor: '#008f6f' }
+                })
             }}
         >
           <SendIcon />

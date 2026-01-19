@@ -2,43 +2,37 @@
 import { useEffect, useState, useRef } from "react";
 import {
   Box, Avatar, IconButton, List, ListItem, ListItemButton, ListItemAvatar, ListItemText,
-  Typography, Divider, Tooltip, CircularProgress, Badge
+  Typography, Divider, Tooltip, CircularProgress, Badge, TextField, InputAdornment
 } from "@mui/material";
 import ChatIcon from "@mui/icons-material/Chat";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import PersonIcon from '@mui/icons-material/Person';
 import GroupIcon from '@mui/icons-material/Group';
+import SearchIcon from '@mui/icons-material/Search'; 
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'; 
 import { useRouter } from "next/navigation";
 
-// ✅ Importaciones Críticas
 import { useGlobal } from "@/context/GlobalContext";
 import { apiFetch } from "@/libs/apiClient";
-import { connectWS, disconnectWS } from "@/libs/wsClient";
+import { connectWS } from "@/libs/wsClient"; 
 
 export default function ChatList() {
   const { state, dispatch } = useGlobal();
   const router = useRouter();
   
-  // Estado local solo para carga inicial
   const [loadingInitial, setLoadingInitial] = useState(false);
+  const [searchId, setSearchId] = useState(''); 
   const isMounted = useRef(true);
-  
-  // Ref para guardar el socket del lobby
-  const lobbySocketRef = useRef<WebSocket | null>(null);
 
-  // Leemos chats del Estado Global
   const chats = state.chats || [];
 
   // =========================================================
-  // 1. Carga Inicial HTTP
+  // 1. Carga Inicial HTTP 
   // =========================================================
   useEffect(() => {
     isMounted.current = true;
-
     const loadChats = async () => {
-      // Si ya tenemos chats o no hay usuario, no hacemos fetch
       if (chats.length > 0 || !state.user?.id) return;
-
       try {
         setLoadingInitial(true);
         const res = await apiFetch('/chat/user/me');
@@ -47,34 +41,26 @@ export default function ChatList() {
         const formatted = rawList.map((c: any) => {
             let chatName = c.name;
             let avatarUrl = c.avatar;
-
-            // Lógica para poner nombre si es chat 1 a 1
+            
             if (!chatName && Array.isArray(c.participants)) {
-                const partner = c.participants.find(
-                    (p: any) => p._id !== state.user?.id
-                );
+                const partner = c.participants.find((p: any) => p._id !== state.user?.id);
                 if (partner) {
                     chatName = partner.name || partner.email;
                     avatarUrl = partner.avatar;
                 }
             }
-
             return {
                 id: c._id || c.id,
                 name: chatName || "Usuario Desconocido",
                 lastMessage: c.lastMessage?.text || "Sin mensajes",
                 timestamp: c.lastMessage?.createdAt || Date.now(),
                 avatar: avatarUrl,
-                isGuestChat: c.isGuestChat || false // Para mostrar icono diferente si quieres
+                isGuestChat: c.isGuestChat || false,
+                unreadCount: 0 
             };
         });
 
-        // Ordenar por más reciente
-        formatted.sort((a: any, b: any) => {
-            const timeA = new Date(a.timestamp).getTime();
-            const timeB = new Date(b.timestamp).getTime();
-            return timeB - timeA;
-        });
+        formatted.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
         if (isMounted.current) {
             dispatch({ type: 'SET_CHATS', payload: formatted });
@@ -85,52 +71,30 @@ export default function ChatList() {
         if (isMounted.current) setLoadingInitial(false);
       }
     };
-
     loadChats();
     return () => { isMounted.current = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.user?.id]); 
 
 
   // =========================================================
-  // 2. 🔥 CORRECCIÓN CLAVE: Conexión WS para Notificaciones
+  // 2. Gestión WebSocket (Lobby)
   // =========================================================
   useEffect(() => {
-    // Solo conectamos si hay usuario autenticado
     if (!state.user?.id) return;
 
-    console.log("👂 ChatList: Conectando a WS Lobby para escuchar invitaciones...");
+    console.log("👂 ChatList: Conectando al socket global (Lobby)...");
 
-    // Conectamos sin ID de sala (null) para escuchar eventos globales
-    // Guardamos la referencia para limpieza
-    lobbySocketRef.current = connectWS(null, (msg) => {
-        
-        // 🎯 LÓGICA CORREGIDA PARA MATCHEAR CON TU BACKEND ACTUAL
-        if (msg.type === 'InviteAccepted') {
-            console.log("🎉 ¡Invitación aceptada recibida!", msg);
-            
-            // Usamos 'fullChat' que es lo que envía tu backend ahora
-            if (msg.fullChat) {
-                dispatch({ 
-                    type: 'ADD_CHAT', 
-                    payload: msg.fullChat 
-                });
-            }
+    connectWS(null, (msg) => {
+        if (msg.type === 'InviteAccepted' && msg.fullChat) {
+             dispatch({ type: 'ADD_CHAT', payload: msg.fullChat });
         }
     });
 
-    return () => {
-        // Al desmontar (ej: logout), desconectamos
-        if (lobbySocketRef.current) {
-            disconnectWS();
-            lobbySocketRef.current = null;
-        }
-    };
   }, [state.user?.id, dispatch]);
 
 
   // =========================================================
-  // Lógica de UI (Manejadores)
+  // Handlers UI
   // =========================================================
   const handleSelect = (id: string) => {
     dispatch({ type: "SET_ACTIVE_CHAT", payload: id });
@@ -141,24 +105,81 @@ export default function ChatList() {
       dispatch({ type: 'TOGGLE_INVITE_MODAL', payload: true });
   };
 
+  const copyMyId = () => {
+      if (state.user?.friendId) {
+          navigator.clipboard.writeText(state.user.friendId);
+          alert(`ID copiado: ${state.user.friendId}`);
+      }
+  };
+
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* --- Header --- */}
-      <Box sx={{ height: 60, bgcolor: "#202c33", display: "flex", alignItems: "center", justifyContent: "space-between", px: 2, borderBottom: "1px solid #2a3942", flexShrink: 0 }}>
-        <Avatar src={state.user?.avatar} alt={state.user?.name} sx={{ cursor: 'pointer' }} />
-        <Box>
-          <Tooltip title="Nuevo chat">
-            <IconButton onClick={handleOpenInvite}>
-              <ChatIcon sx={{ color: "#aebac1" }} />
-            </IconButton>
-          </Tooltip>
-          <IconButton>
-            <MoreVertIcon sx={{ color: "#aebac1" }} />
-          </IconButton>
+      
+      {/* ================= HEADER SUPERIOR ================= */}
+      <Box sx={{ bgcolor: "#202c33", p: 2, borderBottom: "1px solid #2a3942", display: 'flex', flexDirection: 'column', gap: 2 }}>
+        
+        {/* Fila 1: Avatar + Mi ID + Botones */}
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Avatar src={state.user?.avatar} alt={state.user?.name} sx={{ cursor: 'pointer', mr: 1.5 }} />
+                
+                <Box>
+                    <Typography variant="subtitle2" sx={{ color: '#e9edef', lineHeight: 1 }}>
+                        {state.user?.name || 'Yo'}
+                    </Typography>
+                    <Box 
+                        sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', mt: 0.5 }}
+                        onClick={copyMyId}
+                    >
+                        <Typography variant="caption" sx={{ color: '#00a884', fontWeight: 'bold', mr: 0.5 }}>
+                            ID: {state.user?.friendId || 'Cargando...'}
+                        </Typography>
+                        <ContentCopyIcon sx={{ fontSize: 12, color: '#8696a0' }} />
+                    </Box>
+                </Box>
+            </Box>
+
+            <Box>
+                <Tooltip title="Nuevo chat">
+                    <IconButton onClick={handleOpenInvite}>
+                    <ChatIcon sx={{ color: "#aebac1" }} />
+                    </IconButton>
+                </Tooltip>
+                <IconButton>
+                    <MoreVertIcon sx={{ color: "#aebac1" }} />
+                </IconButton>
+            </Box>
         </Box>
+
+        {/* Fila 2: Barra de Búsqueda */}
+        <Box sx={{ bgcolor: '#111b21', borderRadius: 2 }}>
+            <TextField 
+                fullWidth
+                placeholder="Buscar ID de amigo..."
+                value={searchId}
+                onChange={(e) => setSearchId(e.target.value)}
+                size="small"
+                InputProps={{
+                    startAdornment: (
+                        <InputAdornment position="start">
+                            <SearchIcon sx={{ color: '#8696a0', fontSize: 20 }} />
+                        </InputAdornment>
+                    ),
+                }}
+                sx={{
+                    '& .MuiOutlinedInput-root': {
+                        color: '#e9edef',
+                        fontSize: '0.9rem',
+                        '& fieldset': { border: 'none' },
+                        '& input': { py: 1 }
+                    }
+                }}
+            />
+        </Box>
+
       </Box>
 
-      {/* --- Lista de Chats --- */}
+      {/* Lista de Chats */}
       <List sx={{ flex: 1, overflowY: "auto", p: 0 }}>
         {loadingInitial && chats.length === 0 && (
           <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
@@ -169,7 +190,7 @@ export default function ChatList() {
         {!loadingInitial && chats.length === 0 && (
           <Box sx={{ p: 4, textAlign: 'center', mt: 4 }}>
             <Typography variant="body2" sx={{ color: "#8696a0", mb: 1 }}>No tienes chats activos.</Typography>
-            <Typography variant="subtitle2" sx={{ color: '#00a884', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }} onClick={handleOpenInvite}>
+            <Typography variant="subtitle2" sx={{ color: '#00a884', cursor: 'pointer' }} onClick={handleOpenInvite}>
                 Iniciar una conversación
             </Typography>
           </Box>
@@ -182,10 +203,8 @@ export default function ChatList() {
                 onClick={() => handleSelect(chat.id)}
                 selected={state.activeChatId === chat.id}
                 sx={{
-                  height: 72,
-                  px: 2,
+                  height: 72, px: 2,
                   "&.Mui-selected": { bgcolor: "#2a3942" },
-                  "&.Mui-selected:hover": { bgcolor: "#2a3942" },
                   "&:hover": { bgcolor: "#202c33" },
                 }}
               >
@@ -195,18 +214,27 @@ export default function ChatList() {
                     anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
                     variant="dot"
                     color="success"
-                    invisible={!chat.isGuestChat} // Punto verde si es chat de invitado
+                    invisible={!chat.isGuestChat && (chat.unreadCount || 0) === 0}
                   >
-                    <Avatar src={chat.avatar} sx={{ width: 48, height: 48, mr: 1, bgcolor: chat.isGuestChat ? '#00a884' : '#53bdeb' }}>
+                    <Avatar src={chat.avatar} sx={{ bgcolor: chat.isGuestChat ? '#00a884' : '#53bdeb' }}>
                         {chat.isGuestChat ? <PersonIcon /> : (chat.avatar ? null : <GroupIcon />)}
                         {!chat.avatar && !chat.isGuestChat && chat.name[0]?.toUpperCase()}
                     </Avatar>
                   </Badge>
                 </ListItemAvatar>
+                
+                {/* 🔥🔥 AQUÍ ESTÁ EL FIX DE HIDRATACIÓN 🔥🔥 */}
                 <ListItemText
+                  // 1. Indicamos que el contenedor PRIMARIO sea un DIV (no un span por defecto)
+                  primaryTypographyProps={{ component: 'div' }}
+                  
+                  // 2. Indicamos que el contenedor SECUNDARIO sea un DIV (no un P por defecto)
+                  // Esto permite que el <Box> interno sea válido en HTML
+                  secondaryTypographyProps={{ component: 'div' }}
+
                   primary={
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                        <Typography variant="body1" sx={{ color: "#e9edef", fontWeight: 400 }}>{chat.name}</Typography>
+                        <Typography variant="body1" sx={{ color: "#e9edef" }}>{chat.name}</Typography>
                         {chat.timestamp && (
                              <Typography variant="caption" sx={{ color: "#8696a0", fontSize: '0.75rem' }}>
                                 {new Date(chat.timestamp).toLocaleDateString()}
@@ -215,9 +243,16 @@ export default function ChatList() {
                     </Box>
                   }
                   secondary={
-                    <Typography variant="body2" sx={{ color: "#8696a0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: 'block' }}>
-                      {chat.lastMessage}
-                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" sx={{ color: "#8696a0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: 'block', maxWidth: '80%' }}>
+                          {chat.lastMessage}
+                        </Typography>
+                        {(chat.unreadCount || 0) > 0 && (
+                            <Box sx={{ bgcolor: '#00a884', color: '#111b21', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                {chat.unreadCount}
+                            </Box>
+                        )}
+                    </Box>
                   }
                 />
               </ListItemButton>

@@ -1,181 +1,119 @@
 'use client';
 
-// Nota: No usamos useRouter aquí porque esto no es un componente React.
-// Usaremos window.location para redirecciones forzadas.
+// ===================================================
+// ⚙️ Configuración
+// ===================================================
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 
 let socket: WebSocket | null = null;
 let reconnectAttempts = 0;
 let reconnectTimer: NodeJS.Timeout | null = null;
-let currentChatId: string | null = null; 
 let currentOnMessage: ((msg: any) => void) | null = null;
 
 const AUTH_CLOSE_CODES = [4001, 4003]; 
 
-// ===================================================
-// ⚙️ Config utilitario para URL base
-// ===================================================
-function getWSUrl(chatId?: string): string {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host; 
-  return chatId 
-    ? `${protocol}//${host}/ws?roomId=${chatId}`
-    : `${protocol}//${host}/ws`; 
+function getWSUrl(): string {
+  let wsUrl = BASE_URL.replace(/^http/, 'ws');
+  if (!wsUrl.endsWith('/ws')) wsUrl += '/ws';
+  return wsUrl;
 }
 
 // ===================================================
-// 🟢 Conectar al WebSocket
+// 🟢 Conectar al WebSocket (MODO SINGLETON PURO)
 // ===================================================
 export function connectWS(
-  chatId: string | null, 
+  _chatId: string | null, // Ya no usamos chatId para la URL, solo para lógica interna si fuera necesario
   onMessage: (msg: any) => void
 ): WebSocket | null {
   
-  if (reconnectTimer) clearTimeout(reconnectTimer);
+  if (typeof window === 'undefined') return null;
 
-  if (socket && currentChatId === chatId && socket.readyState === WebSocket.OPEN) {
-      console.log('⚡ WS ya conectado, reutilizando conexión.');
-      currentOnMessage = onMessage; 
+  // Actualizamos el callback siempre, para que el componente activo reciba la data
+  currentOnMessage = onMessage;
+
+  // 🔥 CORE FIX: Si ya hay socket, NO LO TOCAMOS. Lo devolvemos y punto.
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+      console.log('⚡ WS: Usando conexión compartida existente.');
       return socket;
   }
 
+  // Solo limpiamos si el socket estaba muerto o null
   if (socket) {
-    try {
-      socket.close();
-    } catch {}
+    try { socket.close(); } catch {}
     socket = null;
   }
   
-  currentChatId = chatId;
-  currentOnMessage = onMessage;
-
-  const wsUrl = getWSUrl(chatId || undefined);
-  
-  console.log(`⚙️ Intentando conectar WS → ${wsUrl}`);
+  // Conectamos a la raíz /ws sin query params de sala (el join lo hacemos por mensaje)
+  const url = getWSUrl();
+  console.log(`⚙️ WS: Iniciando conexión Maestra a → ${url}`);
 
   try {
-    socket = new WebSocket(wsUrl);
+    socket = new WebSocket(url);
 
     socket.onopen = () => {
       reconnectAttempts = 0; 
-      console.log('🟢 WebSocket conectado →', wsUrl);
+      console.log('🟢 WS: Conexión Maestra Establecida');
     };
 
     socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (currentOnMessage) {
-            currentOnMessage(data); 
-        }
+        if (currentOnMessage) currentOnMessage(data); 
       } catch (err) {
-        console.error('❌ Error al procesar mensaje WS:', err);
+        console.error('❌ WS: Error parseando mensaje', err);
       }
     };
 
     socket.onclose = (event) => {
-      console.warn(`🔴 WS desconectado (${event.code})`);
+      console.warn(`🔴 WS: Desconectado (${event.code})`);
       socket = null;
 
       if (AUTH_CLOSE_CODES.includes(event.code)) {
-        console.error(`❌ WS Sesión Inválida. Redirigiendo...`);
-        if (currentOnMessage) currentOnMessage({ system: true, type: 'AUTH_FAILED' });
         deleteSessionAndRedirect(); 
         return; 
       }
 
-      if (![1000, 1001].includes(event.code)) {
-        scheduleReconnect(chatId, onMessage);
+      // Reconexión automática agresiva
+      if (event.code !== 1000 && event.code !== 1001) {
+        scheduleReconnect(onMessage);
       }
-    };
-
-    socket.onerror = (err) => {
-      console.error('⚠️ Error en WebSocket:', err);
     };
 
     return socket;
   } catch (e) {
-    console.error('❌ Error al conectar WebSocket:', e);
-    scheduleReconnect(chatId, onMessage);
+    console.error('❌ WS: Fallo crítico', e);
+    scheduleReconnect(onMessage);
     return null;
   }
 }
 
-// ===================================================
-// 🔍 Obtener Instancia (LA FUNCIÓN QUE FALTABA)
-// ===================================================
 export function getSocket() {
     return socket;
 }
 
-// ===================================================
-// 🚪 Unirse a Sala Manualmente (Reemplazo de .emit)
-// ===================================================
-export function joinRoom(chatId: string) {
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-        console.warn('⚠️ No se puede unir a sala: WS desconectado');
-        return;
-    }
-    // En WS nativo enviamos JSON, no existe .emit()
-    socket.send(JSON.stringify({ type: 'join_chat', chatId }));
-    console.log(`🔌 Enviado join_chat para: ${chatId}`);
-}
-
-// ===================================================
-// 🔁 Reconexión automática
-// ===================================================
-function scheduleReconnect(chatId: string | null, onMessage: (msg: any) => void) {
+function scheduleReconnect(onMessage: (msg: any) => void) {
   if (reconnectTimer) clearTimeout(reconnectTimer);
-
   reconnectAttempts++;
-  const delay = Math.min(30000, 2000 * Math.pow(2, reconnectAttempts - 1));
-
-  console.warn(`⏳ Intentando reconexión #${reconnectAttempts} en ${delay / 1000}s...`);
-
-  reconnectTimer = setTimeout(() => {
-    connectWS(chatId, onMessage);
-  }, delay);
+  const delay = Math.min(10000, 1000 * Math.pow(2, reconnectAttempts - 1));
+  reconnectTimer = setTimeout(() => { connectWS(null, onMessage); }, delay);
 }
 
-// ===================================================
-// ✉️ Enviar mensaje
-// ===================================================
 export function sendMessage(text: string) {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    console.warn('⚠️ No hay conexión WS activa, mensaje no enviado.');
-    return;
-  }
-  
-  if (!currentChatId) {
-      console.warn('🚫 No puedes enviar mensajes desde el Lobby.');
-      return;
-  }
-
-  const payload = JSON.stringify({ type: 'message', text });
-  socket.send(payload);
-  console.log('📤 Mensaje enviado:', text);
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify({ type: 'message', text }));
 }
 
-// ===================================================
-// 🔴 Cerrar conexión manualmente
-// ===================================================
+// ⚠️ Esta función SOLO se debe llamar en Logout real
 export function disconnectWS() {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
-
+  if (reconnectTimer) clearTimeout(reconnectTimer);
   if (socket) {
-    try {
-      socket.close(1000, 'Cierre manual del cliente');
-    } catch {}
+    try { socket.close(1000); } catch {}
     socket = null;
-    currentChatId = null; 
-    console.log('🔴 WS cerrado manualmente');
+    currentOnMessage = null;
   }
 }
 
 export function deleteSessionAndRedirect() {
     disconnectWS();
-    if (typeof window !== 'undefined') {
-        window.location.href = '/auth';
-    }
+    if (typeof window !== 'undefined') window.location.href = '/?error=session_expired';
 }
