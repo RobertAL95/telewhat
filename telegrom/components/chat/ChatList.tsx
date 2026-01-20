@@ -21,7 +21,11 @@ export default function ChatList() {
   const router = useRouter();
   
   const [loadingInitial, setLoadingInitial] = useState(false);
+  
+  // Estados para la búsqueda
   const [searchId, setSearchId] = useState(''); 
+  const [isSearching, setIsSearching] = useState(false); // ✨ Nuevo estado para feedback visual
+
   const isMounted = useRef(true);
 
   const chats = state.chats || [];
@@ -92,6 +96,80 @@ export default function ChatList() {
 
   }, [state.user?.id, dispatch]);
 
+  // =========================================================
+  // 3. 🔍 LÓGICA DE BÚSQUEDA (NUEVO)
+  // =========================================================
+  const handleSearchKeyDown = async (e: React.KeyboardEvent) => {
+    // Solo actuamos si presiona Enter y hay texto
+    if (e.key === 'Enter' && searchId.trim().length > 0) {
+        e.preventDefault(); // Evitar saltos de línea si fuera textarea
+        setIsSearching(true);
+        
+        try {
+            console.log(`🔎 Buscando usuario con friendId: ${searchId}`);
+            
+            // A) Buscar Usuario
+            // Nota: apiFetch lanza error si el status no es 2xx, así que el catch lo captura
+            const searchRes = await apiFetch(`/chat/search/${searchId.trim()}`);
+            const foundUser = searchRes.body || searchRes;
+
+            if (!foundUser || !foundUser._id) {
+                alert("Usuario no encontrado. Verifica el ID.");
+                setIsSearching(false);
+                return;
+            }
+
+            // Evitar hablar con uno mismo
+            if (foundUser._id === state.user?.id) {
+                alert("No puedes iniciar un chat contigo mismo.");
+                setIsSearching(false);
+                return;
+            }
+
+            console.log("✅ Usuario encontrado:", foundUser.name);
+
+            // B) Crear o Obtener Chat
+            // Enviamos userId en el body, el backend lo mapea a participants
+            const chatRes = await apiFetch('/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json' // Importante para que el backend entienda el JSON
+                },
+                body: JSON.stringify({ userId: foundUser._id }) // 👈 AQUÍ ESTABA EL ERROR
+            });
+            
+            const newChatData = chatRes.body || chatRes;
+
+            // Formatear para el estado local
+            // Necesitamos el avatar y nombre del OTRO usuario, no el del grupo genérico
+            // Como acabamos de buscar a foundUser, usamos sus datos para la preview
+            const chatPreview = {
+                id: newChatData._id || newChatData.id,
+                name: foundUser.name,     // Usamos el nombre del usuario encontrado
+                avatar: foundUser.avatar, // Usamos el avatar del usuario encontrado
+                lastMessage: newChatData.lastMessage || "Chat iniciado",
+                timestamp: Date.now(),
+                unreadCount: 0,
+                isGuestChat: foundUser.isGuest || false
+            };
+
+            // C) Actualizar Estado Global
+            dispatch({ type: 'ADD_CHAT', payload: chatPreview });
+            dispatch({ type: "SET_ACTIVE_CHAT", payload: chatPreview.id });
+            
+            // D) Redirigir y Limpiar
+            router.push(`/chat/${chatPreview.id}`);
+            setSearchId('');
+
+        } catch (error) {
+            console.error("Error en búsqueda:", error);
+            alert("No se encontró ningún usuario con ese ID.");
+        } finally {
+            setIsSearching(false);
+        }
+    }
+  };
+
 
   // =========================================================
   // Handlers UI
@@ -151,18 +229,25 @@ export default function ChatList() {
             </Box>
         </Box>
 
-        {/* Fila 2: Barra de Búsqueda */}
+        {/* Fila 2: Barra de Búsqueda Conectada */}
         <Box sx={{ bgcolor: '#111b21', borderRadius: 2 }}>
             <TextField 
                 fullWidth
-                placeholder="Buscar ID de amigo..."
+                placeholder="Buscar ID amigo y presiona Enter..."
                 value={searchId}
                 onChange={(e) => setSearchId(e.target.value)}
+                onKeyDown={handleSearchKeyDown} // 🔥 EVENTO AGREGADO
+                disabled={isSearching}          // Bloquear mientras busca
                 size="small"
                 InputProps={{
                     startAdornment: (
                         <InputAdornment position="start">
-                            <SearchIcon sx={{ color: '#8696a0', fontSize: 20 }} />
+                            {/* Mostrar Spinner o Lupa según estado */}
+                            {isSearching ? (
+                                <CircularProgress size={20} sx={{ color: '#00a884' }} />
+                            ) : (
+                                <SearchIcon sx={{ color: '#8696a0', fontSize: 20 }} />
+                            )}
                         </InputAdornment>
                     ),
                 }}
@@ -191,7 +276,7 @@ export default function ChatList() {
           <Box sx={{ p: 4, textAlign: 'center', mt: 4 }}>
             <Typography variant="body2" sx={{ color: "#8696a0", mb: 1 }}>No tienes chats activos.</Typography>
             <Typography variant="subtitle2" sx={{ color: '#00a884', cursor: 'pointer' }} onClick={handleOpenInvite}>
-                Iniciar una conversación
+                Busca un ID arriba o crea una invitación
             </Typography>
           </Box>
         )}
@@ -223,13 +308,9 @@ export default function ChatList() {
                   </Badge>
                 </ListItemAvatar>
                 
-                {/* 🔥🔥 AQUÍ ESTÁ EL FIX DE HIDRATACIÓN 🔥🔥 */}
+                {/* 🔥 FIX DE HIDRATACIÓN MANTENIDO */}
                 <ListItemText
-                  // 1. Indicamos que el contenedor PRIMARIO sea un DIV (no un span por defecto)
                   primaryTypographyProps={{ component: 'div' }}
-                  
-                  // 2. Indicamos que el contenedor SECUNDARIO sea un DIV (no un P por defecto)
-                  // Esto permite que el <Box> interno sea válido en HTML
                   secondaryTypographyProps={{ component: 'div' }}
 
                   primary={
