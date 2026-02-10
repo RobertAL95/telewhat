@@ -18,7 +18,7 @@ export function useChatWS() {
     // A. Definir manejador de mensajes
     // ============================================================
     const handleIncomingMessage = (incomingData: any) => {
-        // Log para depuración
+        // Log para depuración (opcional)
         // console.log("📩 Mensaje recibido en Hook:", incomingData);
 
         // 1. Mensajes de Sistema (Alguien entró, etc)
@@ -34,24 +34,39 @@ export function useChatWS() {
             return;
         }
 
-        // 2. Mensajes de Texto Normales
-        if (incomingData.type === 'message' || incomingData.text) {
+        // 2. Mensajes de Texto O Multimedia 📸
+        if (incomingData.type === 'message' || incomingData.text || incomingData.payload?.media) {
             const data = incomingData.payload || incomingData;
             
-            // Validación básica
-            if (!data.text) return;
+            // Validación: Si no hay ni texto ni media, ignoramos.
+            if (!data.text && !data.media) return;
+
+            // 🔥🔥🔥 CORRECCIÓN CRÍTICA: EVITAR DUPLICADOS (ECO) 🔥🔥🔥
+            // Si el mensaje viene de nosotros mismos (user.id), lo ignoramos. 
+            // Esto es porque ChatWindow.tsx ya lo agregó "optimistamente" al enviarlo.
+            if (data.from === user.id) {
+                // console.log("♻️ Ignorando eco del servidor (mensaje propio)");
+                return; 
+            }
 
             dispatch({
                 type: 'ADD_MESSAGE',
                 payload: { 
                     chatId: activeChatId, 
                     msg: {
+                        _id: data._id || Date.now().toString(), // Usar ID del server si existe
                         from: data.from, // ID del remitente
-                        text: data.text,
+                        text: data.text || '', // Puede estar vacío si es solo foto
+                        
+                        // 👇 CAPTURAMOS LA MEDIA (FOTO/VIDEO)
+                        media: data.media || null, 
+
                         timestamp: data.timestamp || Date.now(),
                         name: data.name,
-                        // Calculamos si es mensaje propio
-                        isSelf: data.from === user.id 
+                        senderModel: data.senderModel,
+                        
+                        // Al llegar por socket y pasar el filtro de arriba, nunca es self
+                        isSelf: false 
                     }
                 },
             });
@@ -71,7 +86,7 @@ export function useChatWS() {
         return; 
     }
 
-    // Sobrescribimos el onmessage para este chat específico
+    // Sobrescribimos el onmessage para asegurar que este chat reciba los eventos
     socket.onmessage = (event) => {
         try {
             const parsed = JSON.parse(event.data);
@@ -119,11 +134,12 @@ export function useChatWS() {
     // ============================================================
     return () => {
         if (socket && socket.readyState === WebSocket.OPEN) {
-            // Avisar al server que salimos de la sala (opcional, pero buena práctica)
+            // Avisar al server que salimos de la sala
             socket.send(JSON.stringify({ type: 'leave_chat', chatId: activeChatId }));
         }
         joinedRef.current = null;
         // No cerramos el socket (disconnectWS) porque el usuario puede volver al lobby
+        // Pero limpiamos el listener para no procesar mensajes de salas viejas
         if (socket) socket.onmessage = null; 
     };
 

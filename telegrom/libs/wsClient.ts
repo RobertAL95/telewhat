@@ -22,29 +22,32 @@ function getWSUrl(): string {
 // 🟢 Conectar al WebSocket (MODO SINGLETON PURO)
 // ===================================================
 export function connectWS(
-  _chatId: string | null, // Ya no usamos chatId para la URL, solo para lógica interna si fuera necesario
+  _chatId: string | null, 
   onMessage: (msg: any) => void
 ): WebSocket | null {
   
   if (typeof window === 'undefined') return null;
 
-  // Actualizamos el callback siempre, para que el componente activo reciba la data
+  // Actualizamos el callback siempre
   currentOnMessage = onMessage;
 
-  // 🔥 CORE FIX: Si ya hay socket, NO LO TOCAMOS. Lo devolvemos y punto.
+  // 🔥 CORE FIX: Si ya hay socket, NO LO TOCAMOS.
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
       console.log('⚡ WS: Usando conexión compartida existente.');
       return socket;
   }
 
-  // Solo limpiamos si el socket estaba muerto o null
+  // Limpiamos si estaba muerto
   if (socket) {
     try { socket.close(); } catch {}
     socket = null;
   }
   
-  // Conectamos a la raíz /ws sin query params de sala (el join lo hacemos por mensaje)
-  const url = getWSUrl();
+  // Obtenemos Token para la URL (Importante para Cloudinary/Auth en backend)
+  const token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1] || localStorage.getItem('token');
+  const urlBase = getWSUrl();
+  const url = token ? `${urlBase}?token=${token}` : urlBase;
+
   console.log(`⚙️ WS: Iniciando conexión Maestra a → ${url}`);
 
   try {
@@ -73,7 +76,7 @@ export function connectWS(
         return; 
       }
 
-      // Reconexión automática agresiva
+      // Reconexión automática
       if (event.code !== 1000 && event.code !== 1001) {
         scheduleReconnect(onMessage);
       }
@@ -98,12 +101,23 @@ function scheduleReconnect(onMessage: (msg: any) => void) {
   reconnectTimer = setTimeout(() => { connectWS(null, onMessage); }, delay);
 }
 
-export function sendMessage(text: string) {
-  if (!socket || socket.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify({ type: 'message', text }));
+// 👇 1. NUEVA FUNCIÓN GENÉRICA (Esta es la que faltaba)
+// Permite enviar objetos complejos (con media, type, etc)
+export function sendWSMessage(payload: any) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    console.warn('⚠️ WS: No se pudo enviar mensaje (Socket cerrado o conectando)');
+    return;
+  }
+  socket.send(JSON.stringify(payload));
 }
 
-// ⚠️ Esta función SOLO se debe llamar en Logout real
+// 👇 2. ACTUALIZAMOS sendMessage (Legacy)
+// Mantenemos esta función para compatibilidad, pero internamente usa la nueva
+export function sendMessage(text: string) {
+  sendWSMessage({ type: 'message', text });
+}
+
+// ⚠️ Logout real
 export function disconnectWS() {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   if (socket) {
