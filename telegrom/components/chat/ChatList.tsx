@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   Box, Avatar, IconButton, List, ListItem, ListItemButton, ListItemAvatar, ListItemText,
   Typography, Divider, Tooltip, CircularProgress, Badge, TextField, InputAdornment,
-  Menu, MenuItem // 👈 Importamos componentes para el menú desplegable
+  Menu, MenuItem 
 } from "@mui/material";
 
 // Iconos
@@ -14,7 +14,7 @@ import GroupIcon from '@mui/icons-material/Group';
 import SearchIcon from '@mui/icons-material/Search'; 
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import NotificationsIcon from '@mui/icons-material/Notifications';
-import PeopleIcon from '@mui/icons-material/People'; // 👈 Icono para Lista de Amigos
+import PeopleIcon from '@mui/icons-material/People'; 
 
 import { useRouter } from "next/navigation";
 import { useGlobal } from "@/context/GlobalContext";
@@ -22,28 +22,26 @@ import { apiFetch } from "@/libs/apiClient";
 import { connectWS } from "@/libs/wsClient"; 
 
 // Importamos Modales
-import UserProfileModal from "../UserProfileModal"; // Asegúrate que la ruta sea correcta (./ o ../)
-import FriendsListModal from "../FriendsListModal"; // 👈 Nuevo Modal de Amigos
+import UserProfileModal from "../UserProfileModal"; 
+import FriendsListModal from "../FriendsListModal"; 
 
 export default function ChatList() {
   const { state, dispatch } = useGlobal();
   const router = useRouter();
   
   const [loadingInitial, setLoadingInitial] = useState(false);
-  
-  // Estados para la búsqueda
   const [searchId, setSearchId] = useState(''); 
   const [isSearching, setIsSearching] = useState(false); 
 
   // Estados para Modales
   const [searchedUser, setSearchedUser] = useState<any>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [showFriendsModal, setShowFriendsModal] = useState(false); // 👈 Estado para abrir lista de amigos
+  const [showFriendsModal, setShowFriendsModal] = useState(false); 
 
   // Estados para Notificaciones
-  const [pendingRequests, setPendingRequests] = useState(0); // El numerito rojo
-  const [notificationAnchor, setNotificationAnchor] = useState<null | HTMLElement>(null); // Ancla del menú
-  const [notificationList, setNotificationList] = useState<any[]>([]); // La lista de usuarios que te agregaron
+  const [pendingRequests, setPendingRequests] = useState(0); 
+  const [notificationAnchor, setNotificationAnchor] = useState<null | HTMLElement>(null); 
+  const [notificationList, setNotificationList] = useState<any[]>([]); 
 
   const isMounted = useRef(true);
   const chats = state.chats || [];
@@ -99,14 +97,13 @@ export default function ChatList() {
     return () => { isMounted.current = false; };
   }, [state.user?.id]); 
 
-
   // =========================================================
   // 2. Gestión WebSocket (Lobby + Eventos Real-time)
   // =========================================================
   useEffect(() => {
     if (!state.user?.id) return;
 
-    console.log("👂 ChatList: Conectando al socket global...");
+    console.log("👂 ChatList: Conectando al socket global para escuchar mensajes en 2do plano...");
 
     connectWS(null, (msg) => {
         // A) Invitación de chat
@@ -114,17 +111,31 @@ export default function ChatList() {
              dispatch({ type: 'ADD_CHAT', payload: msg.fullChat });
         }
 
-        // B) Solicitud de Amistad Recibida (Aumentar contador)
+        // B) Solicitud de Amistad Recibida
         if (msg.type === 'friend_request') {
             console.log("🔔 Nueva solicitud de amistad!");
             setPendingRequests(prev => prev + 1);
-            // Si el menú está abierto, podríamos refrescar la lista aquí también
         }
 
-        // C) Solicitud Aceptada (Feedback visual)
         if (msg.type === 'request_accepted') {
-            // Esto ocurre cuando TÚ enviaste la solicitud y el otro la aceptó
             alert(`✅ ¡${msg.fromName || 'El usuario'} aceptó tu solicitud de amistad!`);
+        }
+
+        // 🔥 C) NUEVO: MENSAJES DE CHAT EN 2DO PLANO (El Circulito Verde)
+        if (msg.type === 'message') {
+            const isSelf = msg.payload.from === state.user?.id;
+            
+            // Enviamos el mensaje al reducer (que internamente sumará +1 al unreadCount si no estamos en el chat)
+            dispatch({
+                type: 'ADD_MESSAGE',
+                payload: { 
+                    chatId: msg.chatId, 
+                    msg: {
+                        ...msg.payload,
+                        isSelf: isSelf
+                    }
+                }
+            });
         }
     });
 
@@ -134,9 +145,7 @@ export default function ChatList() {
   // 3. Manejo del Menú de Notificaciones
   // =========================================================
   const handleNotificationClick = async (event: React.MouseEvent<HTMLElement>) => {
-      setNotificationAnchor(event.currentTarget); // Abre el menú visualmente
-      
-      // Llamamos al backend para obtener la lista detallada (quién me agregó)
+      setNotificationAnchor(event.currentTarget); 
       try {
           const res = await apiFetch('/friend/pending-list');
           setNotificationList(res.body || []);
@@ -145,16 +154,12 @@ export default function ChatList() {
       }
   };
 
-  const handleNotificationClose = () => {
-      setNotificationAnchor(null);
-  };
+  const handleNotificationClose = () => setNotificationAnchor(null);
 
   const handleRequestInteraction = (requestData: any) => {
-      // Al hacer click en una notificación, abrimos el perfil de ESA persona
-      // requestData.requester contiene los datos del usuario populados por el backend
       setSearchedUser(requestData.requester);
       setShowProfileModal(true);
-      handleNotificationClose(); // Cerramos el menú
+      handleNotificationClose(); 
   };
 
   // =========================================================
@@ -206,24 +211,19 @@ export default function ChatList() {
       <Box sx={{ bgcolor: "#202c33", p: 2, borderBottom: "1px solid #2a3942", display: 'flex', flexDirection: 'column', gap: 2 }}>
         
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            {/* IZQUIERDA: Avatar + Info */}
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <Avatar src={state.user?.avatar} alt={state.user?.name} sx={{ cursor: 'pointer', mr: 1.5 }} />
-                
                 <Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Typography variant="subtitle2" sx={{ color: '#e9edef', lineHeight: 1 }}>
                             {state.user?.name || 'Yo'}
                         </Typography>
-                        
-                        {/* 🔔 CAMPANA CLICKABLE CON BADGE */}
                         <IconButton size="small" sx={{ p: 0.5 }} onClick={handleNotificationClick}>
                             <Badge badgeContent={pendingRequests} color="error" max={99}>
                                 <NotificationsIcon sx={{ color: pendingRequests > 0 ? '#00a884' : '#aebac1', fontSize: 20 }} />
                             </Badge>
                         </IconButton>
                     </Box>
-
                     <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', mt: 0.5 }} onClick={copyMyId}>
                         <Typography variant="caption" sx={{ color: '#00a884', fontWeight: 'bold', mr: 0.5 }}>
                             ID: {state.user?.friendId || 'Cargando...'}
@@ -233,28 +233,23 @@ export default function ChatList() {
                 </Box>
             </Box>
 
-            {/* DERECHA: Botones */}
             <Box>
-                {/* 👥 ICONO LISTA DE AMIGOS */}
                 <Tooltip title="Mis Contactos">
                     <IconButton onClick={() => setShowFriendsModal(true)}>
                         <PeopleIcon sx={{ color: "#aebac1" }} />
                     </IconButton>
                 </Tooltip>
-
                 <Tooltip title="Nuevo chat">
                     <IconButton onClick={handleOpenInvite}>
                         <ChatIcon sx={{ color: "#aebac1" }} />
                     </IconButton>
                 </Tooltip>
-
                 <IconButton>
                     <MoreVertIcon sx={{ color: "#aebac1" }} />
                 </IconButton>
             </Box>
         </Box>
 
-        {/* BARRA DE BÚSQUEDA */}
         <Box sx={{ bgcolor: '#111b21', borderRadius: 2 }}>
             <TextField 
                 fullWidth placeholder="Buscar ID amigo..." value={searchId} onChange={(e) => setSearchId(e.target.value)} onKeyDown={handleSearchKeyDown} disabled={isSearching} size="small"
@@ -342,18 +337,15 @@ export default function ChatList() {
         )}
       </Menu>
 
-      {/* MODALES */}
       <UserProfileModal 
         open={showProfileModal}
         onClose={() => setShowProfileModal(false)}
         targetUser={searchedUser}
       />
-
       <FriendsListModal 
         open={showFriendsModal}
         onClose={() => setShowFriendsModal(false)}
       />
-
     </Box>
   );
 }

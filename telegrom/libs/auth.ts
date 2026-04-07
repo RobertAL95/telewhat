@@ -12,15 +12,29 @@ export interface User {
  * 🟢 Iniciar Sesión
  * El backend setea la cookie HttpOnly. El frontend solo recibe el usuario.
  */
+/**
+ * 🟢 Iniciar Sesión
+ */
 export async function login(credentials: { email: string; password: string }) {
   const res = await apiFetch('/auth/login', {
     method: 'POST',
     body: JSON.stringify(credentials),
   });
-  // Normalizamos respuesta por si el backend envuelve en 'data' o 'body'
-  return res.user || res.data?.user || res;
-}
 
+  // 🕵️‍♂️ RADAR ACTIVADO: Vamos a ver qué hay aquí
+  console.log("📥 RESPUESTA EXACTA DEL BACKEND AL LOGIN:", res);
+
+  const token = res.token || res.data?.token || res.body?.token;
+  
+  if (token) {
+    console.log("✅ ¡SÍ HAY TOKEN EN EL JSON! Guardando en LocalStorage:", token);
+    localStorage.setItem('token', token);
+  } else {
+    console.warn("⚠️ NO HAY TOKEN EN EL JSON. Si el backend usa cookies HttpOnly, el LocalStorage quedará vacío.");
+  }
+
+  return res.user || res.data?.user || res.body?.user || res;
+}
 /**
  * 🟢 Registrarse
  */
@@ -43,10 +57,15 @@ export async function register(userData: { name: string; email: string; password
 export async function logout() {
   try {
     await apiFetch('/auth/logout', { method: 'POST' });
-    return true;
   } catch (error) {
-    console.warn('Error al cerrar sesión (posiblemente ya cerrada):', error);
-    return false;
+    console.warn('Error al cerrar sesión:', error);
+  } finally {
+    // 🧹 LIMPIEZA OBLIGATORIA
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('token');
+      document.cookie = "token=; path=/; max-age=0"; 
+    }
+    return true;
   }
 }
 
@@ -65,41 +84,42 @@ import { API_BASE_URL } from './apiClient'; // Asegúrate de importar la URL bas
  * Implementa tu lógica: Verifica cookies ANTES de decidir si es error o no.
  * NO usa apiFetch para evitar que explote la pantalla roja en caso de ser invitado.
  */
+/**
+ * 🟡 Validar Sesión (VERIFICACIÓN SILENCIOSA)
+ * Ahora envía el token correctamente al recargar la página (F5)
+ */
+/**
+ * 🟡 Validar Sesión (VERIFICACIÓN SILENCIOSA)
+ * Forzamos el uso del proxy (/api) para blindar la conexión.
+ */
 export async function validateSession() {
   try {
-    // 1. Construimos la URL manualmente
-    const url = `${API_BASE_URL}/auth/me`;
+    const url = '/api/auth/me'; 
+    let token = null;
 
-    // 2. Usamos fetch nativo para tener control total
+    if (typeof window !== 'undefined') {
+      // 🕵️‍♂️ CAMBIO AQUÍ: Buscamos 'at' que es lo que pone tu backend
+      token = localStorage.getItem('token') || 
+              document.cookie.split('; ').find(row => row.startsWith('at='))?.split('=')[1];
+    }
+
+    if (!token) return null;
+
     const res = await fetch(url, {
       method: 'GET',
-      credentials: 'include', // 🔥 IMPORTANTE: Envía la cookie si existe
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}` // Enviamos el token que acabamos de encontrar
       },
     });
 
-    // 3. APLICAMOS TU LÓGICA:
-    // Si el servidor dice "401 Unauthorized" (No hay cookie o expiró),
-    // NO es un error del sistema. Es simplemente un usuario nuevo.
-    if (res.status === 401 || res.status === 403) {
-      return null; // Retornamos null (Invitado) pacíficamente.
-    }
+    if (res.status === 401 || res.status === 403) return null;
+    if (!res.ok) throw new Error('Error validando');
 
-    // 4. Si falla por otra cosa (ej: Servidor caído 500), ahí sí lanzamos error
-    if (!res.ok) {
-      throw new Error(`Error del servidor: ${res.status}`);
-    }
-
-    // 5. Si todo sale bien (Status 200), hay usuario
     const data = await res.json();
-    // Ajustamos por si tu backend devuelve { user: ... } o directo el user
     return data.user || data;
 
   } catch (error) {
-    // Si ni siquiera hay conexión (internet caído), retornamos null para no bloquear la app
-    console.warn('⚠️ Verificación de sesión fallida (Modo Invitado activo):', error);
     return null;
   }
 }

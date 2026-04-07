@@ -1,18 +1,8 @@
 'use client';
-import React, { createContext, useReducer, useContext, useMemo, useEffect, useCallback } from 'react';
+import React, { createContext, useReducer, useContext, useMemo } from 'react';
 import { saveMessageLocally } from '@/libs/localChatStore';
-import { validateSession, logout as apiLogout } from '@/libs/auth';
 
-// --- Interfaces ---
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  avatar?: string;
-  friendId?: string; // Corregido para ChatList
-  status?: string;
-}
-
+// --- Interfaces de Chat ---
 export interface ChatPreview {
   id: string;
   name: string;
@@ -24,65 +14,51 @@ export interface ChatPreview {
 }
 
 interface GlobalState {
-  user: User | null;
   chats: ChatPreview[];
   activeChatId: string | null;
   messages: Record<string, any[]>;
   inviteModalOpen: boolean;
-  loading: boolean;
-  error: string | null;
 }
 
 type Action =
-  | { type: 'SET_USER'; payload: User | null }
   | { type: 'SET_CHATS'; payload: ChatPreview[] }
   | { type: 'ADD_CHAT'; payload: ChatPreview }
   | { type: 'SET_ACTIVE_CHAT'; payload: string | null }
   | { type: 'ADD_MESSAGE'; payload: { chatId: string; msg: any } }
   | { type: 'LOAD_MESSAGES'; payload: { chatId: string; msgs: any[] } }
   | { type: 'TOGGLE_INVITE_MODAL'; payload: boolean }
-  | { type: 'SET_LOADING'; payload: boolean }
-  | { type: 'SET_ERROR'; payload: string | null }
-  | { type: 'LOGOUT' };
+  | { type: 'RESET_CHAT_STATE' }; // Útil para limpiar los chats al cerrar sesión
 
 const initialState: GlobalState = {
-  user: null,
   chats: [],
   activeChatId: null,
   messages: {},
   inviteModalOpen: false,
-  loading: true, 
-  error: null,
 };
 
 const GlobalContext = createContext<{
   state: GlobalState;
   dispatch: React.Dispatch<Action>;
-  logout: () => Promise<void>;
-}>({ state: initialState, dispatch: () => {}, logout: async () => {} });
+}>({ state: initialState, dispatch: () => {} });
 
 function reducer(state: GlobalState, action: Action): GlobalState {
   switch (action.type) {
-    case 'SET_USER':
-      return { ...state, user: action.payload, loading: false, error: null };
-    case 'SET_LOADING':
-      return { ...state, loading: action.payload };
-    case 'SET_ERROR':
-      return { ...state, error: action.payload, loading: false };
     case 'SET_CHATS':
       return { ...state, chats: action.payload };
+    
     case 'ADD_CHAT': {
       const exists = state.chats.find(c => c.id === action.payload.id);
       if (exists) return state;
       return { ...state, chats: [action.payload, ...state.chats] };
     }
     
-    case 'SET_ACTIVE_CHAT':
+    case 'SET_ACTIVE_CHAT': {
       // Al abrir un chat, reseteamos su contador de no leídos
       const chatsCleaned = state.chats.map(c => 
           c.id === action.payload ? { ...c, unreadCount: 0 } : c
       );
       return { ...state, activeChatId: action.payload, chats: chatsCleaned };
+    }
 
     case 'ADD_MESSAGE': {
       const { chatId, msg } = action.payload;
@@ -96,7 +72,7 @@ function reducer(state: GlobalState, action: Action): GlobalState {
       const updatedMsgs = [...currentMsgs, msg];
       saveMessageLocally(chatId, msg);
 
-      // 🔥 LÓGICA DE UNREAD COUNT CORREGIDA
+      // 🔥 LÓGICA DE UNREAD COUNT INTACTA
       const updatedChats = state.chats.map(c => {
         if (c.id === chatId) {
             // Si el mensaje NO es mío y NO estoy viendo ese chat -> +1 Unread
@@ -126,10 +102,13 @@ function reducer(state: GlobalState, action: Action): GlobalState {
         ...state,
         messages: { ...state.messages, [action.payload.chatId]: action.payload.msgs },
       };
+      
     case 'TOGGLE_INVITE_MODAL':
       return { ...state, inviteModalOpen: action.payload };
-    case 'LOGOUT':
-      return { ...initialState, loading: false };
+      
+    case 'RESET_CHAT_STATE':
+      return initialState;
+      
     default:
       return state;
   }
@@ -138,29 +117,10 @@ function reducer(state: GlobalState, action: Action): GlobalState {
 export const GlobalProvider = ({ children }: { children: React.ReactNode }) => {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  const logout = useCallback(async () => {
-    try { await apiLogout(); } catch (error) { console.error(error); } 
-    finally { dispatch({ type: 'LOGOUT' }); }
-  }, []);
+  // Memorizamos valores para optimizar rendimiento
+  const value = useMemo(() => ({ state, dispatch }), [state]);
 
-  const initAuth = useCallback(async () => {
-    const userSession = await validateSession(); 
-    if (userSession) dispatch({ type: 'SET_USER', payload: userSession as User });
-    else dispatch({ type: 'SET_LOADING', payload: false });
-  }, []); 
-
-  useEffect(() => { initAuth(); }, [initAuth]);
-
-  const value = useMemo(() => ({ state, dispatch, logout }), [state, logout]);
-
-  if (state.loading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <p className="text-sm font-medium text-gray-500 animate-pulse">Cargando Flym...</p>
-      </div>
-    );
-  }
-
+  // Ya no hay pantalla de carga aquí, de eso se encarga el AuthProvider 🛡️
   return <GlobalContext.Provider value={value}>{children}</GlobalContext.Provider>;
 };
 

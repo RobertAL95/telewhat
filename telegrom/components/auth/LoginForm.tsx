@@ -8,12 +8,15 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { useRouter } from 'next/navigation';
-import { useGlobal } from '@/context/GlobalContext';
+// 1. 🔥 IMPORTAMOS EL GUARDIA CORRECTO
+import { useAuth } from '@/context/AuthContext'; 
 import { login } from '@/libs/auth';
 
 export default function LoginForm() {
   const router = useRouter();
-  const { dispatch } = useGlobal();
+  
+  // 2. 🔥 USAMOS LA FUNCIÓN SETUSER DEL AUTHCONTEXT
+  const { setUser } = useAuth(); 
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,25 +29,22 @@ export default function LoginForm() {
     setError('');
 
     try {
-      // 1. Llamada al backend (libs/auth.ts maneja cookies HttpOnly automáticamente)
       const res = await login({ email, password });
 
-      // 2. Normalización Defensiva:
-      // Verificamos si 'res' es el usuario directamente (tiene id o _id)
-      // O si viene dentro de una propiedad .user
       const user = (res.id || res._id) ? res : (res.user || res.data?.user);
 
       if (!user) {
         throw new Error(res.message || 'Credenciales inválidas');
       }
 
-      // 3. Guardar usuario en estado global
-      // Esto actualiza la UI inmediatamente para evitar rebotes
-      dispatch({ type: 'SET_USER', payload: user });
+      // 3. 🔥 ACTUALIZAMOS AL GUARDIA ANTES DE VIAJAR
+      setUser(user);
 
-      // 4. Redirigir al chat
       console.log('✅ Login exitoso, redirigiendo...');
-      router.push('/chat'); // Asegúrate que tu ruta coincida con la carpeta (ej. /chat o /Chat)
+      
+      // 4. 🔥 USAMOS REPLACE EN LUGAR DE PUSH (Mejor práctica en Logins)
+      // Esto evita que el usuario pueda darle al botón "Atrás" y volver al form de login
+      router.replace('/chat'); 
 
     } catch (err: any) {
       console.error('❌ Error login:', err);

@@ -1,35 +1,36 @@
 'use client';
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Box, CircularProgress } from '@mui/material'; // ✅ Agregamos CircularProgress
-import { useGlobal } from '@/context/GlobalContext';
+import { Box } from '@mui/material'; 
+import { useAuth } from '@/context/AuthContext'; // 🛡️ El Guardia (Sesión)
+import { useGlobal } from '@/context/GlobalContext'; // 🏭 La Maquinaria (Chats)
 import ChatList from '@/components/Chat/ChatList';
 import InviteModal from '@/components/InviteModal';
 
 export default function ChatLayout({ children }: { children: React.ReactNode }) {
-  const { state, dispatch } = useGlobal();
+  const { user } = useAuth(); // Extraemos la sesión
+  const { state, dispatch } = useGlobal(); // Extraemos los chats
+  
   const router = useRouter();
   const pathname = usePathname();
-  const { user, loading, inviteModalOpen } = state;
+  const { inviteModalOpen } = state;
 
   // =========================================================
   // 1. 🛡️ Protección de Ruta (El Guardián)
   // =========================================================
   useEffect(() => {
-    // Solo redirigimos SI ya terminó de cargar Y no hay usuario.
-    // Esto evita el redirect falso durante el F5.
-    if (!loading && !user) {
-      router.push('/auth');
+    // Si el guardia dice que no hay usuario, te echa inmediatamente
+    if (!user) {
+      router.push('/Auth');
     }
-  }, [loading, user, router]);
+  }, [user, router]);
 
   // =========================================================
-  // 2. 🔗 Sincronización URL <-> Contexto (Tu lógica intacta)
+  // 2. 🔗 Sincronización URL <-> Contexto
   // =========================================================
   useEffect(() => {
     if (!pathname) return;
 
-    // Extraemos el ID de la URL si existe
     const match = pathname.match(/\/chat\/([a-zA-Z0-9-]+)/);
     const chatIdFromUrl = match ? match[1] : null;
 
@@ -41,30 +42,11 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
     }
   }, [pathname, state.activeChatId, dispatch]);
 
-  // =========================================================
-  // 3. ⏳ PANTALLA DE CARGA (El arreglo del F5)
-  // =========================================================
-  // Mientras "loading" sea true, mostramos esto y detenemos todo lo demás.
-  if (loading) {
-    return (
-      <Box sx={{ 
-          height: '100vh', 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center', 
-          bgcolor: '#111b21' // Mismo fondo para que no parpadee
-      }}>
-        <CircularProgress color="success" size={50} />
-      </Box>
-    );
-  }
-
-  // Si terminó de cargar y no hay usuario, retornamos null
-  // (mientras el useEffect de arriba hace el redirect a /auth)
+  // Si no hay usuario, retornamos null (mientras el useEffect te echa a /Auth)
   if (!user) return null;
 
   // =========================================================
-  // 4. 🎨 Renderizado de la App (Tu diseño original)
+  // 3. 🎨 Renderizado de la App 
   // =========================================================
   return (
     <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#111b21', overflow: 'hidden' }}>
@@ -75,7 +57,6 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
           width: { xs: '100%', md: 350 },
           borderRight: '1px solid #2a3942',
           bgcolor: '#111b21',
-          // Tu lógica móvil intacta:
           display: { xs: state.activeChatId ? 'none' : 'flex', md: 'flex' },
           flexDirection: 'column'
         }}

@@ -1,4 +1,5 @@
 'use client';
+import { AuthProvider } from '@/context/AuthContext'; // 👈 1. Importamos el nuevo guardia
 import { GlobalProvider } from '@/context/GlobalContext';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 
@@ -21,7 +22,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ThemeProvider theme={darkTheme}>
           <CssBaseline />
-          <GlobalProvider>{children}</GlobalProvider>
+          {/* 🛡️ 2. El AuthProvider envuelve todo. Él decide quién pasa. */}
+          <AuthProvider>
+            <GlobalProvider>
+              {children}
+            </GlobalProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

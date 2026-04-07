@@ -1,44 +1,24 @@
 'use client';
 import { useEffect } from 'react';
-import { Box, Button, Typography, CircularProgress } from '@mui/material';
+import { Box, Button, Typography } from '@mui/material';
 import { useRouter } from 'next/navigation';
-import { useGlobal } from '@/context/GlobalContext'; // ✅ Importamos el Estado Global
+import { useAuth } from '@/context/AuthContext'; // 🛡️ Importamos al Guardia
 
 export default function Home() {
   const router = useRouter();
-  const { state } = useGlobal(); 
-  const { user, loading } = state;
+  const { user } = useAuth(); // Solo pedimos el usuario
 
   useEffect(() => {
-    // 🛡️ LÓGICA DE BLINDAJE:
-    // Si ya dejó de cargar y el usuario existe, nos vamos directo al chat.
-    if (!loading && user) {
-      router.replace('/chat'); // Usamos 'replace' para no dejar historial del Home
+    // 🛡️ Si el usuario existe, nos vamos directo al chat.
+    if (user) {
+      router.replace('/chat');
     }
-  }, [user, loading, router]);
+  }, [user, router]);
 
-  // 🔄 Mientras verificamos la sesión, mostramos un Spinner elegante
-  if (loading) {
-    return (
-      <Box 
-        sx={{ 
-          height: '100vh', 
-          display: 'flex', 
-          flexDirection: 'column',
-          justifyContent: 'center', 
-          alignItems: 'center', 
-          bgcolor: 'background.default' 
-        }}
-      >
-        <CircularProgress color="primary" size={60} thickness={4} />
-        <Typography sx={{ mt: 2, color: 'text.secondary', fontSize: '0.9rem' }}>
-           Verificando sesión...
-        </Typography>
-      </Box>
-    );
-  }
+  // Si hay usuario, retornamos null mientras hace el redirect para que no se vea la Landing Page
+  if (user) return null;
 
-  // Si NO hay usuario y NO está cargando, mostramos la Landing Page normal
+  // Landing Page normal (Solo se muestra si NO hay usuario)
   return (
     <Box
       sx={{
