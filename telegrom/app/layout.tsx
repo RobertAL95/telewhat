@@ -1,5 +1,6 @@
 'use client';
-import { AuthProvider } from '@/context/AuthContext'; // 👈 1. Importamos el nuevo guardia
+import { AuthProvider } from '@/context/AuthContext'; 
+import { SocketProvider } from '@/context/SocketContext'; // 👈 Importamos el enchufe
 import { GlobalProvider } from '@/context/GlobalContext';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 
@@ -22,12 +23,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ThemeProvider theme={darkTheme}>
           <CssBaseline />
-          {/* 🛡️ 2. El AuthProvider envuelve todo. Él decide quién pasa. */}
+          
+          {/* 1. El Jefe: Maneja la identidad */}
           <AuthProvider>
-            <GlobalProvider>
-              {children}
-            </GlobalProvider>
+            
+            {/* 2. El Enchufe: Depende de la identidad para conectar el WS */}
+            <SocketProvider>
+              
+              {/* 3. El Estado Global: Maneja la UI y datos del chat */}
+              <GlobalProvider>
+                {children}
+              </GlobalProvider>
+              
+            </SocketProvider>
+            
           </AuthProvider>
+          
         </ThemeProvider>
       </body>
     </html>

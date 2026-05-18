@@ -26,8 +26,9 @@ type Action =
   | { type: 'SET_ACTIVE_CHAT'; payload: string | null }
   | { type: 'ADD_MESSAGE'; payload: { chatId: string; msg: any } }
   | { type: 'LOAD_MESSAGES'; payload: { chatId: string; msgs: any[] } }
+  | { type: 'SET_MESSAGES'; payload: { chatId: string; messages: any[] } } // 🟢 Agregamos el tipo exacto que usa ChatWindow
   | { type: 'TOGGLE_INVITE_MODAL'; payload: boolean }
-  | { type: 'RESET_CHAT_STATE' }; // Útil para limpiar los chats al cerrar sesión
+  | { type: 'RESET_CHAT_STATE' }; 
 
 const initialState: GlobalState = {
   chats: [],
@@ -53,7 +54,6 @@ function reducer(state: GlobalState, action: Action): GlobalState {
     }
     
     case 'SET_ACTIVE_CHAT': {
-      // Al abrir un chat, reseteamos su contador de no leídos
       const chatsCleaned = state.chats.map(c => 
           c.id === action.payload ? { ...c, unreadCount: 0 } : c
       );
@@ -64,7 +64,6 @@ function reducer(state: GlobalState, action: Action): GlobalState {
       const { chatId, msg } = action.payload;
       const currentMsgs = state.messages[chatId] || [];
       
-      // Evitar duplicados
       if (currentMsgs.some(m => m.timestamp === msg.timestamp && m.text === msg.text)) {
           return state;
       }
@@ -72,10 +71,8 @@ function reducer(state: GlobalState, action: Action): GlobalState {
       const updatedMsgs = [...currentMsgs, msg];
       saveMessageLocally(chatId, msg);
 
-      // 🔥 LÓGICA DE UNREAD COUNT INTACTA
       const updatedChats = state.chats.map(c => {
         if (c.id === chatId) {
-            // Si el mensaje NO es mío y NO estoy viendo ese chat -> +1 Unread
             const shouldIncrement = !msg.isSelf && state.activeChatId !== chatId;
             
             return { 
@@ -102,6 +99,16 @@ function reducer(state: GlobalState, action: Action): GlobalState {
         ...state,
         messages: { ...state.messages, [action.payload.chatId]: action.payload.msgs },
       };
+
+    // 🟢 NUEVO: Captura el historial que descargamos de Mongo y lo inyecta en la pantalla
+    case 'SET_MESSAGES':
+      return {
+        ...state,
+        messages: { 
+          ...state.messages, 
+          [action.payload.chatId]: action.payload.messages 
+        },
+      };
       
     case 'TOGGLE_INVITE_MODAL':
       return { ...state, inviteModalOpen: action.payload };
@@ -116,11 +123,7 @@ function reducer(state: GlobalState, action: Action): GlobalState {
 
 export const GlobalProvider = ({ children }: { children: React.ReactNode }) => {
   const [state, dispatch] = useReducer(reducer, initialState);
-
-  // Memorizamos valores para optimizar rendimiento
   const value = useMemo(() => ({ state, dispatch }), [state]);
-
-  // Ya no hay pantalla de carga aquí, de eso se encarga el AuthProvider 🛡️
   return <GlobalContext.Provider value={value}>{children}</GlobalContext.Provider>;
 };
 

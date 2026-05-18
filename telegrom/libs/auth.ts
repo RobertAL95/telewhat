@@ -4,122 +4,63 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  isGuest?: boolean;
+  friendId?: string; 
   avatar?: string;
+  status?: string;
 }
 
 /**
- * 🟢 Iniciar Sesión
- * El backend setea la cookie HttpOnly. El frontend solo recibe el usuario.
+ * 🟢 Login
+ * El backend ya se encarga de inyectar las cookies 'at' y 'rt'.
+ * Aquí solo nos interesa el objeto user para el estado de React.
  */
-/**
- * 🟢 Iniciar Sesión
- */
-export async function login(credentials: { email: string; password: string }) {
+export async function login(credentials: { email: string; password: string }): Promise<User> {
   const res = await apiFetch('/auth/login', {
     method: 'POST',
     body: JSON.stringify(credentials),
   });
 
-  // 🕵️‍♂️ RADAR ACTIVADO: Vamos a ver qué hay aquí
-  console.log("📥 RESPUESTA EXACTA DEL BACKEND AL LOGIN:", res);
-
-  const token = res.token || res.data?.token || res.body?.token;
-  
-  if (token) {
-    console.log("✅ ¡SÍ HAY TOKEN EN EL JSON! Guardando en LocalStorage:", token);
-    localStorage.setItem('token', token);
-  } else {
-    console.warn("⚠️ NO HAY TOKEN EN EL JSON. Si el backend usa cookies HttpOnly, el LocalStorage quedará vacío.");
-  }
-
-  return res.user || res.data?.user || res.body?.user || res;
+  // El backend devuelve { user: { ... } }. Extraemos solo el usuario.
+  return res.user;
 }
+
 /**
- * 🟢 Registrarse
+ * 🟢 Registro
  */
-export async function register(userData: { name: string; email: string; password: string }) {
+export async function register(userData: { name: string; email: string; password: string }): Promise<User> {
   const res = await apiFetch('/auth/register', {
     method: 'POST',
     body: JSON.stringify(userData),
   });
-
-  // 🔍 CORRECCIÓN AQUÍ:
-  // La respuesta exitosa suele venir en 'res.body'.
-  // Si res.body existe, lo devolvemos (ahí adentro está { user: ... }).
-  // Si no, devolvemos res por si acaso.
-  return res.body || res;
+  
+  return res.user;
 }
+
 /**
- * 🟢 Cerrar Sesión
- * Backend mata la cookie.
+ * 🔴 Logout
+ * Es una acción de backend. Las cookies HttpOnly solo las puede borrar el servidor.
  */
-export async function logout() {
+export async function logout(): Promise<boolean> {
   try {
     await apiFetch('/auth/logout', { method: 'POST' });
   } catch (error) {
-    console.warn('Error al cerrar sesión:', error);
+    console.warn('Logout error:', error);
   } finally {
-    // 🧹 LIMPIEZA OBLIGATORIA
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('token');
-      document.cookie = "token=; path=/; max-age=0"; 
-    }
+    // No borramos localStorage porque ya no guardamos nada ahí.
+    // El estado del AuthContext se limpiará tras el refresh o redirección.
     return true;
   }
 }
 
 /**
- * 🟡 Validar Sesión (Persistencia)
- * Preguntamos: "¿Quién soy?".
- * Si el navegador envía la cookie correcta, el backend responde con el User.
- * Si no (Error 401 / "No session"), capturamos el error y retornamos null.
+ * 🔍 Validar Sesión
  */
-import { API_BASE_URL } from './apiClient'; // Asegúrate de importar la URL base
-
-// ... (login, register, logout se quedan igual) ...
-
-/**
- * 🟡 Validar Sesión (VERIFICACIÓN SILENCIOSA)
- * Implementa tu lógica: Verifica cookies ANTES de decidir si es error o no.
- * NO usa apiFetch para evitar que explote la pantalla roja en caso de ser invitado.
- */
-/**
- * 🟡 Validar Sesión (VERIFICACIÓN SILENCIOSA)
- * Ahora envía el token correctamente al recargar la página (F5)
- */
-/**
- * 🟡 Validar Sesión (VERIFICACIÓN SILENCIOSA)
- * Forzamos el uso del proxy (/api) para blindar la conexión.
- */
-export async function validateSession() {
+export async function validateSession(): Promise<User | null> {
   try {
-    const url = '/api/auth/me'; 
-    let token = null;
-
-    if (typeof window !== 'undefined') {
-      // 🕵️‍♂️ CAMBIO AQUÍ: Buscamos 'at' que es lo que pone tu backend
-      token = localStorage.getItem('token') || 
-              document.cookie.split('; ').find(row => row.startsWith('at='))?.split('=')[1];
-    }
-
-    if (!token) return null;
-
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}` // Enviamos el token que acabamos de encontrar
-      },
-    });
-
-    if (res.status === 401 || res.status === 403) return null;
-    if (!res.ok) throw new Error('Error validando');
-
-    const data = await res.json();
-    return data.user || data;
-
+    const res = await apiFetch('/auth/me', { method: 'GET' });
+    return res.user || null;
   } catch (error) {
+    // Si apiFetch lanza un 401, el usuario simplemente no está logueado.
     return null;
   }
 }

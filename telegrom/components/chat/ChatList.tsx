@@ -18,8 +18,9 @@ import PeopleIcon from '@mui/icons-material/People';
 
 import { useRouter } from "next/navigation";
 import { useGlobal } from "@/context/GlobalContext";
+import { useAuth } from "@/context/AuthContext"; // 🟢 Conectamos la fuente de verdad de Auth
+import { useSocket } from "@/context/SocketContext"; // 🟢 Conectamos el canal unificado de WS
 import { apiFetch } from "@/libs/apiClient";
-import { connectWS } from "@/libs/wsClient"; 
 
 // Importamos Modales
 import UserProfileModal from "../UserProfileModal"; 
@@ -27,6 +28,8 @@ import FriendsListModal from "../FriendsListModal";
 
 export default function ChatList() {
   const { state, dispatch } = useGlobal();
+  const { user } = useAuth(); // 🟢 Traemos el usuario real (Arregla el ID Cargando)
+  const { lastMessage } = useSocket(); // 🟢 Escuchamos el enchufe real
   const router = useRouter();
   
   const [loadingInitial, setLoadingInitial] = useState(false);
@@ -52,11 +55,10 @@ export default function ChatList() {
   useEffect(() => {
     isMounted.current = true;
     const loadData = async () => {
-      if (chats.length > 0 || !state.user?.id) return;
+      if (!user?.id) return; // 🟢 Apunta a user de Auth
       try {
         setLoadingInitial(true);
         
-        // A) Cargar Chats
         const resChats = await apiFetch('/chat/user/me');
         const rawList = Array.isArray(resChats) ? resChats : (resChats.data || resChats.body || []);
 
@@ -64,7 +66,7 @@ export default function ChatList() {
             let chatName = c.name;
             let avatarUrl = c.avatar;
             if (!chatName && Array.isArray(c.participants)) {
-                const partner = c.participants.find((p: any) => p._id !== state.user?.id);
+                const partner = c.participants.find((p: any) => p._id !== user.id);
                 if (partner) {
                     chatName = partner.name || partner.email;
                     avatarUrl = partner.avatar;
@@ -83,7 +85,6 @@ export default function ChatList() {
         formatted.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         if (isMounted.current) dispatch({ type: 'SET_CHATS', payload: formatted });
 
-        // B) Cargar Contador de Notificaciones
         const resCount = await apiFetch('/friend/pending-count');
         setPendingRequests((resCount.body && resCount.body.count) || 0);
 
@@ -95,75 +96,48 @@ export default function ChatList() {
     };
     loadData();
     return () => { isMounted.current = false; };
-  }, [state.user?.id]); 
+  }, [user?.id, dispatch]); 
 
   // =========================================================
-  // 2. Gestión WebSocket (Lobby + Eventos Real-time)
+  // 2. Gestión WebSocket Unificada (Eventos Real-time)
   // =========================================================
   useEffect(() => {
-    if (!state.user?.id) return;
+    if (!lastMessage || !user?.id) return;
 
-    console.log("👂 ChatList: Conectando al socket global para escuchar mensajes en 2do plano...");
+    // A) Invitación de chat aceptada (Crea la tarjeta al instante)
+    if (lastMessage.type === 'InviteAccepted' && lastMessage.fullChat) {
+        console.log("📨 Nueva tarjeta de chat recibida por WS:", lastMessage.fullChat);
+        dispatch({ type: 'ADD_CHAT', payload: lastMessage.fullChat });
+    }
 
-    connectWS(null, (msg) => {
-        // A) Invitación de chat
-        if (msg.type === 'InviteAccepted' && msg.fullChat) {
-             dispatch({ type: 'ADD_CHAT', payload: msg.fullChat });
-        }
+    // B) Solicitud de Amistad Recibida
+    if (lastMessage.type === 'friend_request') {
+        setPendingRequests(prev => prev + 1);
+    }
 
-        // B) Solicitud de Amistad Recibida
-        if (msg.type === 'friend_request') {
-            console.log("🔔 Nueva solicitud de amistad!");
-            setPendingRequests(prev => prev + 1);
-        }
+    if (lastMessage.type === 'request_accepted') {
+        alert(`✅ ¡${lastMessage.fromName || 'El usuario'} aceptó tu solicitud de amistad!`);
+    }
 
-        if (msg.type === 'request_accepted') {
-            alert(`✅ ¡${msg.fromName || 'El usuario'} aceptó tu solicitud de amistad!`);
-        }
-
-        // 🔥 C) NUEVO: MENSAJES DE CHAT EN 2DO PLANO (El Circulito Verde)
-        if (msg.type === 'message') {
-            const isSelf = msg.payload.from === state.user?.id;
-            
-            // Enviamos el mensaje al reducer (que internamente sumará +1 al unreadCount si no estamos en el chat)
-            dispatch({
-                type: 'ADD_MESSAGE',
-                payload: { 
-                    chatId: msg.chatId, 
-                    msg: {
-                        ...msg.payload,
-                        isSelf: isSelf
-                    }
+    // C) MENSAJES DE CHAT EN 2DO PLANO (Actualiza la tarjeta izquierda)
+    if (lastMessage.type === 'message') {
+        const isSelf = lastMessage.payload.from === user.id;
+        
+        dispatch({
+            type: 'ADD_MESSAGE',
+            payload: { 
+                chatId: lastMessage.chatId, 
+                msg: {
+                    ...lastMessage.payload,
+                    isSelf: isSelf
                 }
-            });
-        }
-    });
-
-  }, [state.user?.id, dispatch]);
-
-  // =========================================================
-  // 3. Manejo del Menú de Notificaciones
-  // =========================================================
-  const handleNotificationClick = async (event: React.MouseEvent<HTMLElement>) => {
-      setNotificationAnchor(event.currentTarget); 
-      try {
-          const res = await apiFetch('/friend/pending-list');
-          setNotificationList(res.body || []);
-      } catch (error) {
-          console.error("Error cargando lista de notificaciones", error);
-      }
-  };
-
-  const handleNotificationClose = () => setNotificationAnchor(null);
-
-  const handleRequestInteraction = (requestData: any) => {
-      setSearchedUser(requestData.requester);
-      setShowProfileModal(true);
-      handleNotificationClose(); 
-  };
+            }
+        });
+    }
+  }, [lastMessage, user?.id, dispatch]);
 
   // =========================================================
-  // 4. Búsqueda y Navegación
+  // 3. Búsqueda y Navegación
   // =========================================================
   const handleSearchKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && searchId.trim().length > 0) {
@@ -174,7 +148,7 @@ export default function ChatList() {
             const foundUser = searchRes.body || searchRes;
 
             if (!foundUser || !foundUser._id) { alert("Usuario no encontrado."); return; }
-            if (foundUser._id === state.user?.id) { alert("No puedes buscarte a ti mismo."); return; }
+            if (foundUser._id === user?.id) { alert("No puedes buscarte a ti mismo."); return; }
 
             setSearchedUser(foundUser);
             setShowProfileModal(true);
@@ -188,35 +162,48 @@ export default function ChatList() {
     }
   };
 
+  const handleNotificationClick = async (event: React.MouseEvent<HTMLElement>) => {
+      setNotificationAnchor(event.currentTarget); 
+      try {
+          const res = await apiFetch('/friend/pending-list');
+          setNotificationList(res.body || []);
+      } catch (error) {
+          console.error("Error cargando lista de notificaciones", error);
+      }
+  };
+
+  const handleNotificationClose = () => setNotificationAnchor(null);
+  const handleRequestInteraction = (requestData: any) => {
+      setSearchedUser(requestData.requester);
+      setShowProfileModal(true);
+      handleNotificationClose(); 
+  };
   const handleSelect = (id: string) => {
     dispatch({ type: "SET_ACTIVE_CHAT", payload: id });
     router.push(`/chat/${id}`); 
   };
-
-  const handleOpenInvite = () => {
-      dispatch({ type: 'TOGGLE_INVITE_MODAL', payload: true });
-  };
+  const handleOpenInvite = () => dispatch({ type: 'TOGGLE_INVITE_MODAL', payload: true });
 
   const copyMyId = () => {
-      if (state.user?.friendId) {
-          navigator.clipboard.writeText(state.user.friendId);
-          alert(`ID copiado: ${state.user.friendId}`);
+      if (user?.friendId) {
+          navigator.clipboard.writeText(user.friendId);
+          alert(`ID copiado: ${user.friendId}`);
       }
   };
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
       
-      {/* ================= HEADER SUPERIOR ================= */}
+      {/* HEADER SUPERIOR */}
       <Box sx={{ bgcolor: "#202c33", p: 2, borderBottom: "1px solid #2a3942", display: 'flex', flexDirection: 'column', gap: 2 }}>
         
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <Box sx={{ display: "flex", alignItems: "center", justifyValue: "space-between", justifyContent: "space-between" }}>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <Avatar src={state.user?.avatar} alt={state.user?.name} sx={{ cursor: 'pointer', mr: 1.5 }} />
+                <Avatar src={user?.avatar} alt={user?.name} sx={{ cursor: 'pointer', mr: 1.5 }} />
                 <Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Typography variant="subtitle2" sx={{ color: '#e9edef', lineHeight: 1 }}>
-                            {state.user?.name || 'Yo'}
+                            {user?.name || 'Yo'}
                         </Typography>
                         <IconButton size="small" sx={{ p: 0.5 }} onClick={handleNotificationClick}>
                             <Badge badgeContent={pendingRequests} color="error" max={99}>
@@ -224,9 +211,10 @@ export default function ChatList() {
                             </Badge>
                         </IconButton>
                     </Box>
+                    {/* 🟢 Solución del ID Cargando: Lee directamente de useAuth */}
                     <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', mt: 0.5 }} onClick={copyMyId}>
                         <Typography variant="caption" sx={{ color: '#00a884', fontWeight: 'bold', mr: 0.5 }}>
-                            ID: {state.user?.friendId || 'Cargando...'}
+                            ID: {user?.friendId || 'Cargando...'}
                         </Typography>
                         <ContentCopyIcon sx={{ fontSize: 12, color: '#8696a0' }} />
                     </Box>
@@ -234,19 +222,9 @@ export default function ChatList() {
             </Box>
 
             <Box>
-                <Tooltip title="Mis Contactos">
-                    <IconButton onClick={() => setShowFriendsModal(true)}>
-                        <PeopleIcon sx={{ color: "#aebac1" }} />
-                    </IconButton>
-                </Tooltip>
-                <Tooltip title="Nuevo chat">
-                    <IconButton onClick={handleOpenInvite}>
-                        <ChatIcon sx={{ color: "#aebac1" }} />
-                    </IconButton>
-                </Tooltip>
-                <IconButton>
-                    <MoreVertIcon sx={{ color: "#aebac1" }} />
-                </IconButton>
+                <Tooltip title="Mis Contactos"><IconButton onClick={() => setShowFriendsModal(true)}><PeopleIcon sx={{ color: "#aebac1" }} /></IconButton></Tooltip>
+                <Tooltip title="Nuevo chat"><IconButton onClick={handleOpenInvite}><ChatIcon sx={{ color: "#aebac1" }} /></IconButton></Tooltip>
+                <IconButton><MoreVertIcon sx={{ color: "#aebac1" }} /></IconButton>
             </Box>
         </Box>
 
@@ -257,13 +235,12 @@ export default function ChatList() {
                 sx={{ '& .MuiOutlinedInput-root': { color: '#e9edef', fontSize: '0.9rem', '& fieldset': { border: 'none' }, '& input': { py: 1 } } }}
             />
         </Box>
-
       </Box>
 
       {/* LISTA DE CHATS */}
       <List sx={{ flex: 1, overflowY: "auto", p: 0 }}>
         {loadingInitial && chats.length === 0 && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}><CircularProgress size={30} sx={{ color: '#00a884' }} /></Box>
+          <Box sx={{ display: 'flex', justifyValue: 'center', justifyContent: 'center', mt: 4 }}><CircularProgress size={30} sx={{ color: '#00a884' }} /></Box>
         )}
 
         {!loadingInitial && chats.length === 0 && (
@@ -287,8 +264,8 @@ export default function ChatList() {
                 </ListItemAvatar>
                 <ListItemText
                   primaryTypographyProps={{ component: 'div' }} secondaryTypographyProps={{ component: 'div' }}
-                  primary={<Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}><Typography variant="body1" sx={{ color: "#e9edef" }}>{chat.name}</Typography>{chat.timestamp && <Typography variant="caption" sx={{ color: "#8696a0", fontSize: '0.75rem' }}>{new Date(chat.timestamp).toLocaleDateString()}</Typography>}</Box>}
-                  secondary={<Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Typography variant="body2" sx={{ color: "#8696a0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: 'block', maxWidth: '80%' }}>{chat.lastMessage}</Typography>{(chat.unreadCount || 0) > 0 && (<Box sx={{ bgcolor: '#00a884', color: '#111b21', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 'bold' }}>{chat.unreadCount}</Box>)}</Box>}
+                  primary={<Box sx={{ display: 'flex', justifyValue: 'space-between', justifyContent: 'space-between', mb: 0.5 }}><Typography variant="body1" sx={{ color: "#e9edef" }}>{chat.name}</Typography>{chat.timestamp && <Typography variant="caption" sx={{ color: "#8696a0", fontSize: '0.75rem' }}>{new Date(chat.timestamp).toLocaleDateString()}</Typography>}</Box>}
+                  secondary={<Box sx={{ display: 'flex', justifyValue: 'space-between', justifyContent: 'space-between' }}><Typography variant="body2" sx={{ color: "#8696a0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: 'block', maxWidth: '80%' }}>{chat.lastMessage}</Typography>{(chat.unreadCount || 0) > 0 && (<Box sx={{ bgcolor: '#00a884', color: '#111b21', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyValue: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 'bold' }}>{chat.unreadCount}</Box>)}</Box>}
                 />
               </ListItemButton>
             </ListItem>
@@ -297,55 +274,22 @@ export default function ChatList() {
         ))}
       </List>
 
-      {/* 🔽 MENÚ DESPLEGABLE (NOTIFICACIONES) */}
-      <Menu
-        anchorEl={notificationAnchor}
-        open={Boolean(notificationAnchor)}
-        onClose={handleNotificationClose}
-        PaperProps={{ sx: { bgcolor: '#202c33', color: '#e9edef', width: 300, maxHeight: 400, mt: 1 } }}
-        transformOrigin={{ horizontal: 'left', vertical: 'top' }}
-        anchorOrigin={{ horizontal: 'left', vertical: 'bottom' }}
-      >
-        <Typography variant="subtitle2" sx={{ p: 2, borderBottom: '1px solid #2a3942', fontWeight: 'bold' }}>
-            Solicitudes de Amistad
-        </Typography>
-
+      <Menu anchorEl={notificationAnchor} open={Boolean(notificationAnchor)} onClose={handleNotificationClose} PaperProps={{ sx: { bgcolor: '#202c33', color: '#e9edef', width: 300, maxHeight: 400, mt: 1 } }}>
+        <Typography variant="subtitle2" sx={{ p: 2, borderBottom: '1px solid #2a3942', fontWeight: 'bold' }}>Solicitudes de Amistad</Typography>
         {notificationList.length === 0 ? (
-            <MenuItem disabled sx={{ justifyContent: 'center', py: 3 }}>
-                <Typography variant="body2" sx={{ color: '#8696a0' }}>No tienes notificaciones</Typography>
-            </MenuItem>
+            <MenuItem disabled sx={{ justifyValue: 'center', justifyContent: 'center', py: 3 }}><Typography variant="body2" sx={{ color: '#8696a0' }}>No tienes notificaciones</Typography></MenuItem>
         ) : (
             notificationList.map((req) => (
-                <MenuItem 
-                    key={req._id} 
-                    onClick={() => handleRequestInteraction(req)}
-                    sx={{ borderBottom: '1px solid #2a3942', py: 1.5, '&:hover': { bgcolor: '#111b21' } }}
-                >
-                    <ListItemAvatar>
-                        <Avatar src={req.requester?.avatar} />
-                    </ListItemAvatar>
-                    <Box sx={{ overflow: 'hidden' }}>
-                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                            {req.requester?.name || 'Usuario'}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: '#00a884' }}>
-                            Te envió una solicitud
-                        </Typography>
-                    </Box>
+                <MenuItem key={req._id} onClick={() => handleRequestInteraction(req)} sx={{ borderBottom: '1px solid #2a3942', py: 1.5, '&:hover': { bgcolor: '#111b21' } }}>
+                    <ListItemAvatar><Avatar src={req.requester?.avatar} /></ListItemAvatar>
+                    <Box sx={{ overflow: 'hidden' }}><Typography variant="body2" sx={{ fontWeight: 'bold' }}>{req.requester?.name || 'Usuario'}</Typography><Typography variant="caption" sx={{ color: '#00a884' }}>Te envió una solicitud</Typography></Box>
                 </MenuItem>
             ))
         )}
       </Menu>
 
-      <UserProfileModal 
-        open={showProfileModal}
-        onClose={() => setShowProfileModal(false)}
-        targetUser={searchedUser}
-      />
-      <FriendsListModal 
-        open={showFriendsModal}
-        onClose={() => setShowFriendsModal(false)}
-      />
+      <UserProfileModal open={showProfileModal} onClose={() => setShowProfileModal(false)} targetUser={searchedUser} />
+      <FriendsListModal open={showFriendsModal} onClose={() => setShowFriendsModal(false)} />
     </Box>
   );
 }
