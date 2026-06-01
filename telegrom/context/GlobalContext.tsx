@@ -11,6 +11,7 @@ export interface ChatPreview {
   avatar?: string;
   unreadCount?: number; 
   isGuestChat?: boolean; 
+  isSecret?: boolean;
 }
 
 interface GlobalState {
@@ -26,7 +27,8 @@ type Action =
   | { type: 'SET_ACTIVE_CHAT'; payload: string | null }
   | { type: 'ADD_MESSAGE'; payload: { chatId: string; msg: any } }
   | { type: 'LOAD_MESSAGES'; payload: { chatId: string; msgs: any[] } }
-  | { type: 'SET_MESSAGES'; payload: { chatId: string; messages: any[] } } // 🟢 Agregamos el tipo exacto que usa ChatWindow
+  | { type: 'SET_MESSAGES'; payload: { chatId: string; messages: any[] } }
+  | { type: 'UPDATE_CHAT'; payload: { id: string; isSecret: boolean } } // 🟢 CORRECCIÓN: Agregamos la firma exacta de la acción
   | { type: 'TOGGLE_INVITE_MODAL'; payload: boolean }
   | { type: 'RESET_CHAT_STATE' }; 
 
@@ -64,13 +66,30 @@ function reducer(state: GlobalState, action: Action): GlobalState {
       const { chatId, msg } = action.payload;
       const currentMsgs = state.messages[chatId] || [];
       
-      if (currentMsgs.some(m => m.timestamp === msg.timestamp && m.text === msg.text)) {
-          return state;
+      // 1. Evitar duplicados exactos
+      if (currentMsgs.some((m: any) => m._id === msg._id)){
+        return state;
       }
 
-      const updatedMsgs = [...currentMsgs, msg];
+      let updatedMsgs;
+
+      // 2. LÓGICA ANTI-DUPLICADOS: Evaluación del tempId
+      if (msg.tempId) {
+        const tempIndex = currentMsgs.findIndex((m: any) => m._id === msg.tempId);
+        
+        if (tempIndex !== -1) {
+          updatedMsgs = [...currentMsgs];
+          updatedMsgs[tempIndex] = msg;
+        } else {
+          updatedMsgs = [...currentMsgs, msg];
+        }
+      } else {
+        updatedMsgs = [...currentMsgs, msg];
+      }
+
       saveMessageLocally(chatId, msg);
 
+      // Actualización del Sidebar (Chats)
       const updatedChats = state.chats.map(c => {
         if (c.id === chatId) {
             const shouldIncrement = !msg.isSelf && state.activeChatId !== chatId;
@@ -93,14 +112,13 @@ function reducer(state: GlobalState, action: Action): GlobalState {
           chats: updatedChats 
       };
     }
-
+    
     case 'LOAD_MESSAGES':
       return {
         ...state,
         messages: { ...state.messages, [action.payload.chatId]: action.payload.msgs },
       };
 
-    // 🟢 NUEVO: Captura el historial que descargamos de Mongo y lo inyecta en la pantalla
     case 'SET_MESSAGES':
       return {
         ...state,
@@ -108,6 +126,15 @@ function reducer(state: GlobalState, action: Action): GlobalState {
           ...state.messages, 
           [action.payload.chatId]: action.payload.messages 
         },
+      };
+
+    // 🟢 NUEVO: Manejador para actualizar dinámicamente las propiedades del chat (Bóveda Secreta)
+    case 'UPDATE_CHAT':
+      return {
+        ...state,
+        chats: state.chats.map(c => 
+          c.id === action.payload.id ? { ...c, isSecret: action.payload.isSecret } : c
+        )
       };
       
     case 'TOGGLE_INVITE_MODAL':
