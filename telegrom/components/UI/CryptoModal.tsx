@@ -15,21 +15,23 @@ import {
   decryptPrivateKeyWithPIN, hashPIN 
 } from '@/utils/crypto';
 import { useGhostMode } from '@/hooks/useGhostMode';
+// 🟢 Importamos el contexto global para usar el dispatch de la llave privada
+import { useGlobal } from '@/context/GlobalContext';
 
-// Definimos los estados posibles de nuestro modal
 type CryptoStep = 'SETUP_PIN' | 'REQUEST_OTP' | 'VERIFY_OTP' | 'UNLOCK_PIN';
 
 interface CryptoModalProps {
   open: boolean;
   step: CryptoStep;
   onClose: () => void;
-  onSuccess: () => void; // Callback para cuando termine el flujo (ej. recargar chats o abrir ventana)
+  onSuccess: () => void; 
 }
 
 export default function CryptoModal({ open, step: initialStep, onClose, onSuccess }: CryptoModalProps) {
   const { setupGhostPin } = useGhostMode();
+  // 🟢 Extraemos el dispatch global
+  const { dispatch } = useGlobal();
   
-  // Estado local
   const [currentStep, setCurrentStep] = useState<CryptoStep>(initialStep);
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -37,12 +39,10 @@ export default function CryptoModal({ open, step: initialStep, onClose, onSucces
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Almacenamiento temporal entre pasos
   const [encryptedData, setEncryptedData] = useState<{ encryptedPrivateKey: string, salt: string } | null>(null);
 
-  // Resetea el estado cuando se cierra el modal
   const handleClose = () => {
-    if (loading) return; // Evita cerrar si hay una operación en curso
+    if (loading) return; 
     setPin('');
     setConfirmPin('');
     setOtp('');
@@ -52,7 +52,7 @@ export default function CryptoModal({ open, step: initialStep, onClose, onSucces
   };
 
   // =========================================================
-  // FLUJO 1: CREAR BÓVEDA (SETUP)
+  // FLUJO 1: CREAR BÓVEDA (SETUP) - CON MUTADOR DE ENTORNO
   // =========================================================
   const handleSetupVault = async () => {
     if (pin.length !== 4) return setError("El PIN debe ser de 4 dígitos.");
@@ -79,6 +79,25 @@ export default function CryptoModal({ open, step: initialStep, onClose, onSucces
           salt: salt
         })
       });
+
+      console.log("🔑 Bóveda creada. Inicializando inyección de llave privada RSA...");
+
+      // -----------------------------------------------------------------
+      // 🔴 MODO PRODUCCIÓN: Solo inyecta en RAM global (Volátil al cerrar/recargar)
+      // Para activar producción estricta, DESCOMENTA las siguientes líneas:
+      // -----------------------------------------------------------------
+      /*
+      dispatch({ type: 'SET_PRIVATE_KEY', payload: keyPair.privateKey });
+      */
+
+      // -----------------------------------------------------------------
+      // 🧪 MODO BYPASS DE DESARROLLO (ACTIVO): Respalda la llave en texto plano para desarrollo local
+      // Para desactivar este comportamiento de persistencia, COMENTA las siguientes líneas:
+      // -----------------------------------------------------------------
+      dispatch({ type: 'SET_PRIVATE_KEY', payload: keyPair.privateKey });
+      const rawKey = await window.crypto.subtle.exportKey('jwk', keyPair.privateKey);
+      sessionStorage.setItem('flym_dev_bypass_key', JSON.stringify(rawKey));
+      // -----------------------------------------------------------------
 
       onSuccess();
       handleClose();
@@ -119,7 +138,6 @@ export default function CryptoModal({ open, step: initialStep, onClose, onSucces
         body: JSON.stringify({ otpCode: otp })
       });
 
-      // Guardamos la data bajada en la memoria del componente temporalmente
       setEncryptedData({
         encryptedPrivateKey: res.encryptedPrivateKey,
         salt: res.salt
@@ -143,19 +161,14 @@ export default function CryptoModal({ open, step: initialStep, onClose, onSucces
     setLoading(true);
     setError(null);
     try {
-      // Intentamos desencriptar (si el PIN es malo, esto lanzará un error criptográfico)
       const privateKey = await decryptPrivateKeyWithPIN(
         encryptedData.encryptedPrivateKey, 
         pin, 
         encryptedData.salt
       );
 
-      // Inyectar la llave en sessionStorage (Simulación de Inyección Segura)
-      // Nota Arquitectónica: WebCrypto no exporta el objeto CryptoKey a string. 
-      // Debemos exportarla a JWK para guardarla en SessionStorage o guardarla en IndexedDB marcándola como temporal.
-      // Para este MVP, usaremos sessionStorage convirtiéndola a JWK.
-      const rawKey = await window.crypto.subtle.exportKey('jwk', privateKey);
-      sessionStorage.setItem('flym_unlocked_key', JSON.stringify(rawKey));
+      console.log("🔒 Bóveda desbloqueada con éxito. Llave inyectada en memoria RAM global.");
+      dispatch({ type: 'SET_PRIVATE_KEY', payload: privateKey });
 
       onSuccess();
       handleClose();

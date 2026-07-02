@@ -26,7 +26,7 @@ import { useGhostMode } from "@/hooks/useGhostMode";
 import UserProfileModal from "../UserProfileModal"; 
 import FriendsListModal from "../FriendsListModal"; 
 // 🟢 1. Importamos nuestro Modal Criptográfico
-import CryptoModal from "../CryptoModal"; 
+import CryptoModal from "../UI/CryptoModal"; 
 
 export default function ChatList() {
   const { state, dispatch } = useGlobal();

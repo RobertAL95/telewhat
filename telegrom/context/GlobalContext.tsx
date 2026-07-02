@@ -1,10 +1,13 @@
 'use client';
-import React, { createContext, useReducer, useContext, useMemo } from 'react';
-import { saveMessageLocally } from '@/libs/localChatStore';
+import React, { createContext, useReducer, useContext, useMemo, useEffect, useRef } from 'react';
+import { saveMessageLocally, clearChatLocally } from '@/libs/localChatStore';
+import { apiFetch } from '@/libs/apiClient';
+import { decryptMessageBatch } from '@/utils/crypto';
 
 // --- Interfaces de Chat ---
 export interface ChatPreview {
   id: string;
+  _id?: string; 
   name: string;
   lastMessage: string;
   timestamp?: number;
@@ -14,11 +17,15 @@ export interface ChatPreview {
   isSecret?: boolean;
 }
 
+export type SessionState = 'INITIALIZING' | 'READY' | 'ERROR';
+
 interface GlobalState {
   chats: ChatPreview[];
   activeChatId: string | null;
   messages: Record<string, any[]>;
   inviteModalOpen: boolean;
+  unlockedPrivateKey: CryptoKey | null;
+  sessionState: SessionState; 
 }
 
 type Action =
@@ -28,15 +35,21 @@ type Action =
   | { type: 'ADD_MESSAGE'; payload: { chatId: string; msg: any } }
   | { type: 'LOAD_MESSAGES'; payload: { chatId: string; msgs: any[] } }
   | { type: 'SET_MESSAGES'; payload: { chatId: string; messages: any[] } }
-  | { type: 'UPDATE_CHAT'; payload: { id: string; isSecret: boolean } } // 🟢 CORRECCIÓN: Agregamos la firma exacta de la acción
+  | { type: 'UPDATE_CHAT'; payload: { id: string; isSecret: boolean } }
   | { type: 'TOGGLE_INVITE_MODAL'; payload: boolean }
-  | { type: 'RESET_CHAT_STATE' }; 
+  | { type: 'RESET_CHAT_STATE' }
+  | { type: 'SET_PRIVATE_KEY'; payload: CryptoKey | null }
+  | { type: 'SET_SESSION_STATE'; payload: SessionState }
+  | { type: 'EXPIRE_SECRET_CHAT'; payload: { chatId: string } }
+  | { type: 'UPDATE_MESSAGE_STATUS'; payload: { chatId: string; messageId: string; status: 'sent' | 'delivered' | 'read' } };
 
 const initialState: GlobalState = {
   chats: [],
   activeChatId: null,
   messages: {},
   inviteModalOpen: false,
+  unlockedPrivateKey: null,
+  sessionState: 'INITIALIZING', 
 };
 
 const GlobalContext = createContext<{
@@ -50,14 +63,16 @@ function reducer(state: GlobalState, action: Action): GlobalState {
       return { ...state, chats: action.payload };
     
     case 'ADD_CHAT': {
-      const exists = state.chats.find(c => c.id === action.payload.id);
+      const exists = state.chats.find(
+        c => c.id === action.payload.id || (c._id && c._id === action.payload._id)
+      );
       if (exists) return state;
       return { ...state, chats: [action.payload, ...state.chats] };
     }
     
     case 'SET_ACTIVE_CHAT': {
       const chatsCleaned = state.chats.map(c => 
-          c.id === action.payload ? { ...c, unreadCount: 0 } : c
+          (c.id === action.payload || c._id === action.payload) ? { ...c, unreadCount: 0 } : c
       );
       return { ...state, activeChatId: action.payload, chats: chatsCleaned };
     }
@@ -66,17 +81,14 @@ function reducer(state: GlobalState, action: Action): GlobalState {
       const { chatId, msg } = action.payload;
       const currentMsgs = state.messages[chatId] || [];
       
-      // 1. Evitar duplicados exactos
       if (currentMsgs.some((m: any) => m._id === msg._id)){
         return state;
       }
 
       let updatedMsgs;
 
-      // 2. LÓGICA ANTI-DUPLICADOS: Evaluación del tempId
       if (msg.tempId) {
         const tempIndex = currentMsgs.findIndex((m: any) => m._id === msg.tempId);
-        
         if (tempIndex !== -1) {
           updatedMsgs = [...currentMsgs];
           updatedMsgs[tempIndex] = msg;
@@ -89,14 +101,14 @@ function reducer(state: GlobalState, action: Action): GlobalState {
 
       saveMessageLocally(chatId, msg);
 
-      // Actualización del Sidebar (Chats)
       const updatedChats = state.chats.map(c => {
-        if (c.id === chatId) {
+        if (c.id === chatId || c._id === chatId) {
             const shouldIncrement = !msg.isSelf && state.activeChatId !== chatId;
+            const previewText = c.isSecret ? "🔒 Chat secreto (24h)" : msg.text;
             
             return { 
                 ...c, 
-                lastMessage: msg.text, 
+                lastMessage: previewText, 
                 timestamp: msg.timestamp,
                 unreadCount: shouldIncrement ? (c.unreadCount || 0) + 1 : c.unreadCount
             };
@@ -128,12 +140,13 @@ function reducer(state: GlobalState, action: Action): GlobalState {
         },
       };
 
-    // 🟢 NUEVO: Manejador para actualizar dinámicamente las propiedades del chat (Bóveda Secreta)
     case 'UPDATE_CHAT':
       return {
         ...state,
         chats: state.chats.map(c => 
-          c.id === action.payload.id ? { ...c, isSecret: action.payload.isSecret } : c
+          (c.id === action.payload.id || c._id === action.payload.id) 
+            ? { ...c, isSecret: action.payload.isSecret } 
+            : c
         )
       };
       
@@ -142,6 +155,55 @@ function reducer(state: GlobalState, action: Action): GlobalState {
       
     case 'RESET_CHAT_STATE':
       return initialState;
+
+    case 'SET_PRIVATE_KEY':
+      return {
+        ...state,
+        unlockedPrivateKey: action.payload
+      };
+
+    case 'SET_SESSION_STATE': 
+      return {
+        ...state,
+        sessionState: action.payload
+      };
+
+    case 'UPDATE_MESSAGE_STATUS': {
+      const { chatId, messageId, status } = action.payload;
+      const currentMsgs = state.messages[chatId] || [];
+      const updatedMsgs = currentMsgs.map((m: any) => 
+        (m._id === messageId || m.tempId === messageId) ? { ...m, status } : m
+      );
+      return {
+        ...state,
+        messages: { ...state.messages, [chatId]: updatedMsgs }
+      };
+    }
+
+    case 'EXPIRE_SECRET_CHAT': {
+      const { chatId } = action.payload;
+      clearChatLocally(chatId);
+
+      const systemNotice = {
+        _id: `system_${Date.now()}`,
+        from: 'system',
+        text: '🔒 La bóveda temporal ha expirado de forma segura. Las llaves criptográficas y los mensajes han sido destruidos de este dispositivo.',
+        timestamp: new Date().toISOString()
+      };
+
+      const updatedChats = state.chats.map(c => {
+        if (c.id === chatId || c._id === chatId) {
+          return { ...c, isSecret: false, lastMessage: '🔒 Bóveda destruida (Expired)' };
+        }
+        return c;
+      });
+
+      return {
+        ...state,
+        chats: updatedChats,
+        messages: { ...state.messages, [chatId]: [systemNotice] }
+      };
+    }
       
     default:
       return state;
@@ -150,6 +212,61 @@ function reducer(state: GlobalState, action: Action): GlobalState {
 
 export const GlobalProvider = ({ children }: { children: React.ReactNode }) => {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const hasInitialized = useRef(false);
+
+  useEffect(() => {
+    if (state.sessionState !== 'INITIALIZING' || hasInitialized.current) return;
+    hasInitialized.current = true;
+
+    const runFullAppOrchestrator = async () => {
+      try {
+        let activePrivateKey: CryptoKey | null = null;
+        const storedJwk = sessionStorage.getItem('flym_dev_bypass_key');
+
+        if (storedJwk) {
+          const jwk = JSON.parse(storedJwk);
+          activePrivateKey = await window.crypto.subtle.importKey(
+            'jwk', jwk, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']
+          );
+          dispatch({ type: 'SET_PRIVATE_KEY', payload: activePrivateKey });
+        }
+
+        const chatListRes = await apiFetch('/chat/user/me');
+        const rawChats = Array.isArray(chatListRes) ? chatListRes : (chatListRes?.body || chatListRes?.data || []);
+        
+        if (rawChats.length > 0) {
+          dispatch({ type: 'SET_CHATS', payload: rawChats });
+          
+          await Promise.all(
+            rawChats.map(async (chat: ChatPreview) => {
+              const targetId = chat.id || chat._id;
+              if (!targetId) return;
+
+              try {
+                const resMessages = await apiFetch(`/chat/${targetId}/messages`);
+                const messagesList = Array.isArray(resMessages) ? resMessages : (resMessages?.body || resMessages?.data || []);
+                const clearMessages = await decryptMessageBatch(messagesList, activePrivateKey);
+
+                dispatch({ 
+                  type: 'SET_MESSAGES', 
+                  payload: { chatId: targetId, messages: clearMessages } 
+                });
+              } catch (chatErr) {
+                console.error(`❌ Error al precargar historial del canal ${targetId}:`, chatErr);
+              }
+            })
+          );
+        }
+        dispatch({ type: 'SET_SESSION_STATE', payload: 'READY' });
+      } catch (err) {
+        console.error("❌ GlobalProvider: Fallo crítico:", err);
+        dispatch({ type: 'SET_SESSION_STATE', payload: 'ERROR' });
+      }
+    };
+
+    runFullAppOrchestrator();
+  }, [state.sessionState]); 
+
   const value = useMemo(() => ({ state, dispatch }), [state]);
   return <GlobalContext.Provider value={value}>{children}</GlobalContext.Provider>;
 };
