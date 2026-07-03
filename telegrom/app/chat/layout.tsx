@@ -1,18 +1,15 @@
 'use client';
 import { useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Box, CircularProgress, Typography } from '@mui/material'; 
 import { useAuth } from '@/context/AuthContext'; // 🛡️ El Guardia (Sesión)
 import { useGlobal } from '@/context/GlobalContext'; // 🏭 La Maquinaria (Chats)
-import ChatList from '@/components/Chat/ChatList';
 import InviteModal from '@/components/InviteModal';
 
 export default function ChatLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth(); // Extraemos la sesión
   const { state, dispatch } = useGlobal(); // Extraemos los chats
-  
   const router = useRouter();
-  const pathname = usePathname();
   const { inviteModalOpen, sessionState } = state;
 
   // =========================================================
@@ -24,24 +21,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
     }
   }, [user, router]);
 
-  // =========================================================
-  // 2. 🔗 Sincronización URL <-> Contexto
-  // =========================================================
-  useEffect(() => {
-    if (!pathname) return;
-
-    const match = pathname.match(/\/chat\/([a-zA-Z0-9-]+)/);
-    const chatIdFromUrl = match ? match[1] : null;
-
-    if (chatIdFromUrl && state.activeChatId !== chatIdFromUrl) {
-      dispatch({ type: 'SET_ACTIVE_CHAT', payload: chatIdFromUrl });
-    } 
-    else if (!chatIdFromUrl && state.activeChatId) {
-      dispatch({ type: 'SET_ACTIVE_CHAT', payload: null });
-    }
-  }, [pathname, state.activeChatId, dispatch]);
-
-  // Si no hay usuario, retornamos null (mientras el useEffect te echa a /Auth)
+  // Si no hay usuario, retornamos null (mientras el useEffect redirige)
   if (!user) return null;
 
   // =========================================================
@@ -70,36 +50,16 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
   }
 
   // =========================================================
-  // 🎨 Renderizado de la App (Se libera de forma limpia)
+  // 🎨 Renderizado Limpio del Layout Pass-Through
+  // El control de las columnas pasa 100% a page.tsx
   // =========================================================
   return (
-    <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#111b21', overflow: 'hidden' }}>
+    <Box sx={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative' }}>
       
-      {/* Panel Izquierdo: Lista de Chats */}
-      <Box
-        sx={{
-          width: { xs: '100%', md: 350 },
-          borderRight: '1px solid #2a3942',
-          bgcolor: '#111b21',
-          display: { xs: state.activeChatId ? 'none' : 'flex', md: 'flex' },
-          flexDirection: 'column'
-        }}
-      >
-        <ChatList />
-      </Box>
+      {/* Contenido inyectado dinámicamente por la SPA (page.tsx) */}
+      {children}
 
-      {/* Panel Derecho: Ventana de Chat */}
-      <Box 
-        sx={{ 
-          flex: 1, 
-          bgcolor: '#0b141a', 
-          position: 'relative',
-          display: { xs: state.activeChatId ? 'block' : 'none', md: 'block' }
-        }}
-      >
-        {children}
-      </Box>
-
+      {/* Modal global del módulo */}
       <InviteModal 
         open={inviteModalOpen} 
         onClose={() => dispatch({ type: 'TOGGLE_INVITE_MODAL', payload: false })} 

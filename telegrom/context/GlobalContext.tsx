@@ -2,7 +2,6 @@
 import React, { createContext, useReducer, useContext, useMemo, useEffect, useRef } from 'react';
 import { saveMessageLocally, clearChatLocally } from '@/libs/localChatStore';
 import { apiFetch } from '@/libs/apiClient';
-import { decryptMessageBatch } from '@/utils/crypto';
 
 // --- Interfaces de Chat ---
 export interface ChatPreview {
@@ -57,6 +56,21 @@ const GlobalContext = createContext<{
   dispatch: React.Dispatch<Action>;
 }>({ state: initialState, dispatch: () => {} });
 
+// Helper privado para sanitizar el polimorfismo de lastMessage en el Frontend
+function parseLastMessageText(lastMessageField: any): string {
+  if (!lastMessageField) return "Sin mensajes";
+  if (typeof lastMessageField === 'object') {
+    if (lastMessageField.text && lastMessageField.text.trim().length > 0) {
+      return lastMessageField.text;
+    }
+    return "Sin mensajes";
+  }
+  if (typeof lastMessageField === 'string') {
+    return lastMessageField;
+  }
+  return "Sin mensajes";
+}
+
 function reducer(state: GlobalState, action: Action): GlobalState {
   switch (action.type) {
     case 'SET_CHATS':
@@ -104,12 +118,25 @@ function reducer(state: GlobalState, action: Action): GlobalState {
       const updatedChats = state.chats.map(c => {
         if (c.id === chatId || c._id === chatId) {
             const shouldIncrement = !msg.isSelf && state.activeChatId !== chatId;
-            const previewText = c.isSecret ? "🔒 Chat secreto (24h)" : msg.text;
+            
+            // 🟢 CORTOCIRCUITO DEFENSIVO EN CALIENTE: Sanitizamos el payload que viene del socket/UI
+            let previewText = "Sin mensajes";
+            if (c.isSecret) {
+              previewText = "🔒 Chat secreto (24h)";
+            } else if (msg) {
+              if (typeof msg.text === 'object' && msg.text !== null) {
+                previewText = msg.text.text || "Sin mensajes";
+              } else if (typeof msg.text === 'string') {
+                previewText = msg.text;
+              } else if (msg.media && msg.media.url) {
+                previewText = "📷 Multimedia";
+              }
+            }
             
             return { 
                 ...c, 
                 lastMessage: previewText, 
-                timestamp: msg.timestamp,
+                timestamp: msg.timestamp || Date.now(),
                 unreadCount: shouldIncrement ? (c.unreadCount || 0) + 1 : c.unreadCount
             };
         }
@@ -235,27 +262,15 @@ export const GlobalProvider = ({ children }: { children: React.ReactNode }) => {
         const rawChats = Array.isArray(chatListRes) ? chatListRes : (chatListRes?.body || chatListRes?.data || []);
         
         if (rawChats.length > 0) {
-          dispatch({ type: 'SET_CHATS', payload: rawChats });
-          
-          await Promise.all(
-            rawChats.map(async (chat: ChatPreview) => {
-              const targetId = chat.id || chat._id;
-              if (!targetId) return;
+          // 🟢 FILTRO DE ARRANQUE: Extrae el texto plano antes de inyectarlo en el array de la UI
+          const sanitizedChats = rawChats.map((chat: any) => ({
+            ...chat,
+            id: chat._id || chat.id,
+            lastMessage: parseLastMessageText(chat.lastMessage),
+            timestamp: chat.lastMessage?.createdAt || chat.updatedAt || Date.now()
+          }));
 
-              try {
-                const resMessages = await apiFetch(`/chat/${targetId}/messages`);
-                const messagesList = Array.isArray(resMessages) ? resMessages : (resMessages?.body || resMessages?.data || []);
-                const clearMessages = await decryptMessageBatch(messagesList, activePrivateKey);
-
-                dispatch({ 
-                  type: 'SET_MESSAGES', 
-                  payload: { chatId: targetId, messages: clearMessages } 
-                });
-              } catch (chatErr) {
-                console.error(`❌ Error al precargar historial del canal ${targetId}:`, chatErr);
-              }
-            })
-          );
+          dispatch({ type: 'SET_CHATS', payload: sanitizedChats });
         }
         dispatch({ type: 'SET_SESSION_STATE', payload: 'READY' });
       } catch (err) {

@@ -1,9 +1,7 @@
-// src/libs/pushSubscription.ts
 'use strict';
 
 import { apiFetch } from './apiClient';
 
-// Helper para convertir la clave pública VAPID del servidor a formato Uint8Array
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
@@ -57,14 +55,26 @@ export async function initPushNotifications(): Promise<void> {
       });
     }
 
+    // 🟢 PASO 4.5: CORTOCIRCUITO (Debounce de infraestructura)
+    // El endpoint es único por navegador/dispositivo. Si ya se sincronizó en esta sesión, abortamos el POST.
+    const sessionKey = `flym_push_synced`;
+    if (subscription && sessionStorage.getItem(sessionKey) === subscription.endpoint) {
+      console.log("📡 Push API: El dispositivo ya se encuentra sincronizado en esta sesión de navegación. Omitiendo petición de red.");
+      return;
+    }
+
     // 5. Enviamos la suscripción completa (endpoint, keys, etc.) al backend para indexarla en MongoDB
     console.log("📡 Push API: Sincronizando suscripción con el servidor de Flym...");
     
-    // 🟢 CORRECCIÓN: Ruta redirigida al módulo de Chat unificado
     await apiFetch('/chat/push-subscription', {
       method: 'POST',
       body: JSON.stringify(subscription)
     });
+    
+    // Si la petición fue exitosa, marcamos el endpoint como sincronizado en la sesión actual
+    if (subscription) {
+      sessionStorage.setItem(sessionKey, subscription.endpoint);
+    }
     
     console.log("✅ Push API: Dispositivo registrado y enlazado al multi-cast de fondo.");
 

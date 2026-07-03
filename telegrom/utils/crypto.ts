@@ -2,8 +2,32 @@
 
 const PBKDF2_ITERATIONS = 100000;
 
-export const buf2hex = (b: ArrayBuffer) => Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join('');
-export const hex2buf = (s: string) => new Uint8Array(s.match(/[\da-f]{2}/gi)!.map(h => parseInt(h, 16))).buffer;
+// =====================================================================
+// 🛠️ UTILIDADES DE CONVERSIÓN ATÓMICAS (Seguras contra nulos y desbordamientos)
+// =====================================================================
+
+export const buf2hex = (b: ArrayBuffer): string => 
+  Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join('');
+
+export const hex2buf = (s: string): ArrayBuffer => {
+  const matches = s.match(/[\da-f]{2}/gi);
+  if (!matches) return new ArrayBuffer(0); // Cláusula de salvaguarda en vez de aserción (!)
+  return new Uint8Array(matches.map(h => parseInt(h, 16))).buffer;
+};
+
+// Conversión Base64 segura para flujos de datos binarios grandes
+const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+};
+
+// =====================================================================
+// 🔒 GESTIÓN DE LLAVES ASIMÉTRICAS Y BÓVEDAS (Fase 1 y Ghost Mode)
+// =====================================================================
 
 export async function generateRSAKeyPair(): Promise<CryptoKeyPair> {
   return await window.crypto.subtle.generateKey(
@@ -21,10 +45,15 @@ export async function encryptPrivateKeyWithPIN(privateKey: CryptoKey, pin: strin
   );
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const wrapped = await window.crypto.subtle.wrapKey('pkcs8', privateKey, aesKey, { name: 'AES-GCM', iv });
+  
   const combined = new Uint8Array(iv.length + wrapped.byteLength);
   combined.set(iv, 0);
   combined.set(new Uint8Array(wrapped), iv.length);
-  return { encryptedKey: btoa(String.fromCharCode(...combined)), salt: buf2hex(salt.buffer) };
+  
+  return { 
+    encryptedKey: arrayBufferToBase64(combined.buffer), 
+    salt: buf2hex(salt.buffer) 
+  };
 }
 
 export async function decryptPrivateKeyWithPIN(encryptedKeyBase64: string, pin: string, saltHex: string): Promise<CryptoKey> {
@@ -40,8 +69,26 @@ export async function decryptPrivateKeyWithPIN(encryptedKeyBase64: string, pin: 
   return await window.crypto.subtle.unwrapKey('pkcs8', combined.slice(12), aesKey, { name: 'AES-GCM', iv }, { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['decrypt']);
 }
 
-export async function encryptFileHybrid(file: File, recipientKeyRaw: any): Promise<Blob> {
-  const pubKey = await window.crypto.subtle.importKey('jwk', typeof recipientKeyRaw === 'string' ? JSON.parse(recipientKeyRaw) : recipientKeyRaw, { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']);
+// 🟢 EXPORTACIÓN REQUERIDA POR CRYPTOMODAL (Faltante en tu archivo previo)
+export async function exportPublicKey(key: CryptoKey): Promise<string> {
+  const exported = await window.crypto.subtle.exportKey('jwk', key);
+  return JSON.stringify(exported);
+}
+
+// 🟢 VERIFICACIÓN DE PIN REQUERIDA POR GHOSTMODE (Faltante en tu archivo previo)
+export async function hashPIN(pin: string): Promise<string> {
+  const msgBuffer = new TextEncoder().encode(pin);
+  const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
+  return buf2hex(hashBuffer);
+}
+
+// =====================================================================
+// 📦 PIPELINES DE CIFRADO HÍBRIDO Y SIMÉTRICO (Fase 2 y Sockets)
+// =====================================================================
+
+export async function encryptFileHybrid(file: File, recipientKeyRaw: unknown): Promise<Blob> {
+  const jwk = typeof recipientKeyRaw === 'string' ? JSON.parse(recipientKeyRaw) : recipientKeyRaw;
+  const pubKey = await window.crypto.subtle.importKey('jwk', jwk, { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']);
   const fileKey = await window.crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const encFile = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, fileKey, await file.arrayBuffer());
@@ -49,9 +96,9 @@ export async function encryptFileHybrid(file: File, recipientKeyRaw: any): Promi
   return new Blob([JSON.stringify({ encryptedTextHex: buf2hex(encFile), ivHex: buf2hex(iv.buffer), encryptedAesKeyHex: buf2hex(encKey) })], { type: 'application/json' });
 }
 
-export async function decryptMessageBatch(messages: any[], privateKey: CryptoKey | null): Promise<any[]> {
+export async function decryptMessageBatch(messages: unknown[], privateKey: CryptoKey | null): Promise<any[]> {
   if (!Array.isArray(messages) || messages.length === 0) return [];
-  return Promise.all(messages.map(async (msg) => {
+  return Promise.all(messages.map(async (msg: any) => {
     const syncMsg = { ...msg };
     if (!syncMsg.text || !syncMsg.text.includes('"encryptedTextHex"')) return syncMsg;
     try {
@@ -64,7 +111,31 @@ export async function decryptMessageBatch(messages: any[], privateKey: CryptoKey
       } else if (!privateKey) {
         syncMsg.text = "🔒 Sincronizando llaves asimétricas...";
       }
-    } catch { syncMsg.text = syncMsg.isSelf ? "🔒 Mensaje enviado" : "🔒 Mensaje cifrado"; }
+    } catch { 
+      syncMsg.text = syncMsg.isSelf ? "🔒 Mensaje enviado" : "🔒 Mensaje cifrado"; 
+    }
     return syncMsg;
   }));
+}
+
+// 🟢 CIFRADO REQUERIDA POR SOCKETCONTEXT (Faltante en tu archivo previo)
+export async function encryptStreamMessage(text: string, aesKey: CryptoKey): Promise<{ encryptedTextHex: string; ivHex: string; encryptedAesKeyHex: string }> {
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const encodedText = new TextEncoder().encode(text);
+  const encrypted = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, encodedText);
+  return {
+    encryptedTextHex: buf2hex(encrypted),
+    ivHex: buf2hex(iv.buffer),
+    encryptedAesKeyHex: "SESSION_TUNNEL_ACTIVE"
+  };
+}
+
+// 🟢 DESCIFRADO REQUERIDA POR SOCKETCONTEXT (Faltante en tu archivo previo)
+export async function decryptStreamMessage(encryptedHex: string, ivHex: string, aesKey: CryptoKey): Promise<string> {
+  const decrypted = await window.crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: new Uint8Array(hex2buf(ivHex)) },
+    aesKey,
+    hex2buf(encryptedHex)
+  );
+  return new TextDecoder().decode(decrypted);
 }

@@ -16,7 +16,6 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import PeopleIcon from '@mui/icons-material/People'; 
 import LockIcon from '@mui/icons-material/Lock'; 
 
-import { useRouter } from "next/navigation";
 import { useGlobal } from "@/context/GlobalContext";
 import { useAuth } from "@/context/AuthContext";
 import { useSocket } from "@/context/SocketContext";
@@ -25,14 +24,12 @@ import { useGhostMode } from "@/hooks/useGhostMode";
 
 import UserProfileModal from "../UserProfileModal"; 
 import FriendsListModal from "../FriendsListModal"; 
-// 🟢 1. Importamos nuestro Modal Criptográfico
 import CryptoModal from "../UI/CryptoModal"; 
 
 export default function ChatList() {
   const { state, dispatch } = useGlobal();
   const { user } = useAuth();
   const { lastMessage } = useSocket();
-  const router = useRouter();
   
   const { isGhostModeUnlocked, checkSearchInput } = useGhostMode();
 
@@ -40,12 +37,10 @@ export default function ChatList() {
   const [searchId, setSearchId] = useState(''); 
   const [isSearching, setIsSearching] = useState(false); 
 
-  // Estados para Modales
   const [searchedUser, setSearchedUser] = useState<any>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showFriendsModal, setShowFriendsModal] = useState(false); 
 
-  // 🟢 2. Estados para el Modal de Seguridad
   const [cryptoModalOpen, setCryptoModalOpen] = useState(false);
   const [pendingSecretChatId, setPendingSecretChatId] = useState<string | null>(null);
 
@@ -75,11 +70,22 @@ export default function ChatList() {
                     avatarUrl = partner.avatar;
                 }
             }
+
+            // 🟢 CONTROL DE INVARIANZA: Extraemos de forma segura el texto para el DOM
+            let finalLastMessage = "Sin mensajes";
+            if (c.lastMessage) {
+              if (typeof c.lastMessage === 'object' && c.lastMessage.text) {
+                finalLastMessage = c.lastMessage.text;
+              } else if (typeof c.lastMessage === 'string') {
+                finalLastMessage = c.lastMessage;
+              }
+            }
+
             return {
                 id: c._id || c.id,
                 name: chatName || "Usuario Desconocido",
-                lastMessage: c.lastMessage?.text || "Sin mensajes",
-                timestamp: c.lastMessage?.createdAt || Date.now(),
+                lastMessage: finalLastMessage, 
+                timestamp: c.lastMessage?.createdAt || c.timestamp || Date.now(),
                 avatar: avatarUrl,
                 isGuestChat: c.isGuestChat || false,
                 isSecret: c.isSecret || false, 
@@ -142,46 +148,39 @@ export default function ChatList() {
     }
   };
 
-  const handleNotificationClick = async (event: React.MouseEvent<HTMLElement>) => {
+  const handleNotificationClick = (event: React.MouseEvent<HTMLElement>) => {
       setNotificationAnchor(event.currentTarget); 
-      try {
-          const res = await apiFetch('/friend/pending-list');
-          setNotificationList(res.body || []);
-      } catch (error) { console.error("Error cargando", error); }
+      apiFetch('/friend/pending-list')
+        .then(res => setNotificationList(res.body || []))
+        .catch(error => console.error("Error cargando", error));
   };
 
   const handleNotificationClose = () => setNotificationAnchor(null);
+  
   const handleRequestInteraction = (requestData: any) => {
       setSearchedUser(requestData.requester);
       setShowProfileModal(true);
       handleNotificationClose(); 
   };
   
-  // 🟢 3. EL PORTERO: Validamos seguridad antes de dejarlo entrar al chat
   const handleSelect = (id: string) => {
     const chat = chats.find(c => c.id === id);
     
-    // Si el chat es secreto, revisamos la bóveda de la RAM
     if (chat?.isSecret) {
       const isKeyLoaded = sessionStorage.getItem('flym_unlocked_key');
       if (!isKeyLoaded) {
-        // Bloqueamos acceso y abrimos el proceso de correo OTP
         setPendingSecretChatId(id);
         setCryptoModalOpen(true);
         return;
       }
     }
 
-    // Si es normal o ya está desbloqueado, pasa directo
     dispatch({ type: "SET_ACTIVE_CHAT", payload: id });
-    router.push(`/chat/${id}`); 
   };
 
-  // 🟢 4. Qué hacer cuando el modal termina con éxito
   const handleCryptoSuccess = () => {
     if (pendingSecretChatId) {
       dispatch({ type: "SET_ACTIVE_CHAT", payload: pendingSecretChatId });
-      router.push(`/chat/${pendingSecretChatId}`);
       setPendingSecretChatId(null);
     }
   };
@@ -194,7 +193,7 @@ export default function ChatList() {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <Box sx={{ bgcolor: "#202c33", p: 2, borderBottom: "1px solid #2a3942", display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <Box sx={{ display: "flex", alignItems: "center", justifySpaceBetween: "space-between" }}>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <Avatar src={user?.avatar} alt={user?.name} sx={{ cursor: 'pointer', mr: 1.5 }} />
                 <Box>
@@ -281,7 +280,6 @@ export default function ChatList() {
         )}
       </Menu>
 
-      {/* 🟢 5. Renderizamos el Modal al final */}
       <CryptoModal 
         open={cryptoModalOpen} 
         step="REQUEST_OTP" 

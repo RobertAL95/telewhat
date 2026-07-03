@@ -1,27 +1,85 @@
-export function saveMessageLocally(chatId: string, msg: any) {
-  const key = `chat_${chatId}`;
-  const data = JSON.parse(localStorage.getItem(key) || '[]');
-  
-  // Control de duplicados para evitar inflar el almacenamiento en disco
-  if (data.some((m: any) => m._id === msg._id || (msg.tempId && m._id === msg.tempId))) {
-    return;
+'use client';
+
+const DB_NAME = 'flym_local_vault';
+const STORE_NAME = 'messages_v1';
+const DB_VERSION = 1;
+
+// Inicializador privado de la base de datos IndexedDB
+function getDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        // Indexamos por chatId para búsquedas relacionales instantáneas
+        const store = db.createObjectStore(STORE_NAME, { keyPath: '_id' });
+        store.createIndex('chatId', 'chatId', { unique: false });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+// 🟢 Persistencia local asíncrona sin bloquear el Event Loop
+export async function saveMessageLocally(chatId: string, msg: any): Promise<void> {
+  if (!msg || !msg._id) return;
+  try {
+    const db = await getDB();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(tx.objectStoreNames[0] || STORE_NAME);
+    
+    // Normalizamos el payload para asegurar el índice chatId
+    await store.put({ ...msg, chatId });
+  } catch (err) {
+    console.error("❌ localChatStore: Error al persistir mensaje:", err);
   }
-
-  data.push(msg);
-  localStorage.setItem(key, JSON.stringify(data));
 }
 
-export function loadMessages(chatId: string) {
-  return JSON.parse(localStorage.getItem(`chat_${chatId}`) || '[]');
+// 🟢 Carga masiva asíncrona filtrada por índice de conversación
+export async function loadMessages(chatId: string): Promise<any[]> {
+  try {
+    const db = await getDB();
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const index = store.index('chatId');
+
+    return new Promise((resolve, reject) => {
+      const request = index.getAll(IDBKeyRange.only(chatId));
+      request.onsuccess = () => {
+        const list = request.result || [];
+        // Ordenamos cronológicamente de forma segura
+        list.sort((a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime());
+        resolve(list);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.error(`❌ localChatStore: Error leyendo canal ${chatId}:`, err);
+    return [];
+  }
 }
 
-// =====================================================================
-// 🗑️ DESTRUCTOR LOCAL: Purga absoluta de mensajes en el disco físico
-// =====================================================================
-export function clearChatLocally(chatId: string): void {
-  const key = `chat_${chatId}`;
-  if (localStorage.getItem(key)) {
-    localStorage.removeItem(key);
-    console.warn(`🗑️ localChatStore: Historial en disco de la sala ${chatId} destruido totalmente.`);
+// 🟢 Purga física del almacenamiento local (Invocada en borrados o expiraciones)
+export async function clearChatLocally(chatId: string): Promise<void> {
+  try {
+    const db = await getDB();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const index = store.index('chatId');
+
+    const request = index.openKeyCursor(IDBKeyRange.only(chatId));
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (cursor) {
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      }
+    };
+    console.warn(`🗑️ localChatStore: Historial en IndexedDB de la sala ${chatId} purgado totalmente.`);
+  } catch (err) {
+    console.error("❌ localChatStore: Error al ejecutar purga local:", err);
   }
 }

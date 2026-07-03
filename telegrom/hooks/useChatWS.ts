@@ -1,72 +1,83 @@
+'use client';
 import { useEffect, useRef } from 'react';
 import { useGlobal } from '@/context/GlobalContext';
+import { useAuth } from '@/context/AuthContext'; // 🟢 CORRECCIÓN: Importamos el contexto de sesión correcto
 import { connectWS } from '@/libs/wsClient'; 
+import { loadMessages, saveMessageLocally } from '@/libs/localChatStore';
+import { apiFetch } from '@/libs/apiClient';
+import { decryptMessageBatch } from '@/utils/crypto';
 
 export function useChatWS() {
   const { state, dispatch } = useGlobal();
-  const { activeChatId, user } = state;
-  // Ref para evitar joins duplicados en renderizados rápidos
+  const { activeChatId } = state; // 🟢 CORRECCIÓN: Extraemos solo lo que le pertenece a GlobalState
+  const { user } = useAuth();     // 🟢 CORRECCIÓN: Consumimos la sesión desde AuthContext de forma limpia
+  
   const joinedRef = useRef<string | null>(null);
 
   // ============================================================
-  // 🟢 1. BUZÓN INTELIGENTE: CARGAR EL HISTORIAL (Sincronización BD)
+  // 🟢 1. BUZÓN INTELIGENTE: Persistencia Híbrida y Sincronización Delta
   // ============================================================
   useEffect(() => {
-    if (!activeChatId || !user) return;
+    if (!activeChatId || !user?.id) return;
 
-    const fetchChatHistory = async () => {
+    const orchestrateOfflineFirstSync = async () => {
       try {
-        // Obtenemos el token
-        const token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1] || localStorage.getItem('token');
-
-        // 🔥 CORRECCIÓN AQUÍ: Agregamos /api y usamos 'chat' en singular
-        const response = await fetch(`/api/chat/${activeChatId}/messages`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-
-        if (!response.ok) {
-           const errText = await response.text();
-           throw new Error(`Error al conectar con la base de datos: ${response.status} - ${errText}`);
+        // Paso A: Carga en frío ultrarrápida desde disco local (IndexedDB)
+        const localCachedMsgs = await loadMessages(activeChatId);
+        
+        if (localCachedMsgs.length > 0) {
+          dispatch({
+            type: 'LOAD_MESSAGES',
+            payload: { chatId: activeChatId, msgs: localCachedMsgs }
+          });
         }
 
-        const data = await response.json();
+        // Paso B: Determinar el delta (¿Cuál es el último mensaje que poseo?)
+        const lastMessageId = localCachedMsgs[localCachedMsgs.length - 1]?._id;
+        
+        // Construimos url delta dinámica: si tengo mensajes pido solo los nuevos desde sinceId
+        const syncUrl = lastMessageId 
+          ? `/chat/${activeChatId}/messages?sinceId=${lastMessageId}` 
+          : `/chat/${activeChatId}/messages`;
 
-        // Si llegaron los mensajes, usamos TU acción 'LOAD_MESSAGES'
-        if (!data.error && data.body) {
+        console.log(`📡 Sincronización Delta iniciada. Destino: ${syncUrl}`);
+        const resMessages = await apiFetch(syncUrl);
+        const messagesList = Array.isArray(resMessages) ? resMessages : (resMessages?.body || resMessages?.data || []);
+
+        if (messagesList.length > 0) {
+          // Desciframos criptográficamente solo los mensajes nuevos (El delta)
+          const clearNewMessages = await decryptMessageBatch(messagesList, state.unlockedPrivateKey);
+
+          // Persistimos en IndexedDB de fondo para la siguiente sesión en frío
+          await Promise.all(clearNewMessages.map(msg => saveMessageLocally(activeChatId, msg)));
+
+          // Fusionamos el delta con el estado global de la memoria de React
           dispatch({
-            type: 'LOAD_MESSAGES', 
-            payload: {
-              chatId: activeChatId,
-              msgs: data.body // Array de mensajes históricos
+            type: 'SET_MESSAGES',
+            payload: { 
+              chatId: activeChatId, 
+              messages: lastMessageId ? [...localCachedMsgs, ...clearNewMessages] : clearNewMessages 
             }
           });
         }
       } catch (error) {
-        console.error("❌ Error cargando el historial del chat:", error);
+        console.error("❌ useChatWS: Falló la sincronización delta del pipeline:", error);
       }
     };
 
-    // Solo cargamos el historial si aún no tenemos mensajes para este chat en memoria
-    if (!state.messages[activeChatId] || state.messages[activeChatId].length === 0) {
-       fetchChatHistory();
-    }
+    orchestrateOfflineFirstSync();
     
-  }, [activeChatId, user?.id, dispatch, state.messages]);
+  }, [activeChatId, user?.id, state.unlockedPrivateKey, dispatch]);
 
   // ============================================================
-  // 🔵 2. WEBSOCKET: MENSAJES EN TIEMPO REAL
+  // 🔵 2. WEBSOCKET: Mensajería en Tiempo Real con Autoguardado Local
   // ============================================================
   useEffect(() => {
-    // Guardias
-    if (!activeChatId || !user) return;
+    if (!activeChatId || !user?.id) return;
 
     console.log(`🚀 Hook WS montado para Chat: ${activeChatId}`);
 
-    // A. Manejador de mensajes entrantes
-    const handleIncomingMessage = (incomingData: any) => {
+    const handleIncomingMessage = async (incomingData: any) => {
         // 1. Mensajes de Sistema
         if (incomingData.system || incomingData.type === 'user_joined') {
             const joinName = incomingData.userName || incomingData.payload?.userName || 'El invitado';
@@ -80,43 +91,39 @@ export function useChatWS() {
             return;
         }
 
-        // 2. Mensajes de Texto o Multimedia
+        // 2. Mensajes de Texto o Multimedia entrantes
         if (incomingData.type === 'message' || incomingData.text || incomingData.payload?.media) {
             const data = incomingData.payload || incomingData;
-            
             if (!data.text && !data.media) return;
+            if (data.from === user.id) return; // Cortocircuito anti-eco
 
-            // Filtro anti-eco (No añadir el mensaje si es mío)
-            if (data.from === user.id) return; 
+            const rawMsg = {
+                _id: data._id || Date.now().toString(),
+                from: data.from,
+                text: data.text || '',
+                media: data.media || null, 
+                timestamp: data.timestamp || Date.now(),
+                name: data.name,
+                senderModel: data.senderModel,
+                isSelf: false 
+            };
+
+            // Inyección inmediata en base de datos local asíncrona (IndexedDB)
+            await saveMessageLocally(activeChatId, rawMsg);
 
             dispatch({
                 type: 'ADD_MESSAGE',
-                payload: { 
-                    chatId: activeChatId, 
-                    msg: {
-                        _id: data._id || Date.now().toString(),
-                        from: data.from,
-                        text: data.text || '',
-                        media: data.media || null, 
-                        timestamp: data.timestamp || Date.now(),
-                        name: data.name,
-                        senderModel: data.senderModel,
-                        isSelf: false 
-                    }
-                },
+                payload: { chatId: activeChatId, msg: rawMsg },
             });
         }
     };
 
-    // B. Obtener Conexión (Singleton)
     let socket = connectWS(null, handleIncomingMessage);
-
     if (!socket) {
         console.error("❌ Fatal: No se pudo obtener instancia del socket.");
         return; 
     }
 
-    // Sobrescribimos onmessage para este chat
     socket.onmessage = (event) => {
         try {
             const parsed = JSON.parse(event.data);
@@ -124,10 +131,8 @@ export function useChatWS() {
         } catch(e) { console.error("Error parseando WS", e); }
     };
 
-    // C. Protocolo de Unión a la Sala (Room)
     const sendJoinPacket = () => {
         if (joinedRef.current === activeChatId) return; 
-        
         if (socket && socket.readyState === WebSocket.OPEN) {
             console.log(`📡 Enviando JOIN_CHAT para ${activeChatId}...`);
             socket.send(JSON.stringify({ 
@@ -139,7 +144,6 @@ export function useChatWS() {
         }
     };
 
-    // Inteligencia de espera del socket
     if (socket.readyState === WebSocket.OPEN) {
         sendJoinPacket();
     } else {
@@ -150,7 +154,6 @@ export function useChatWS() {
         };
     }
 
-    // D. Limpieza al salir del chat
     return () => {
         if (socket && socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ type: 'leave_chat', chatId: activeChatId }));
